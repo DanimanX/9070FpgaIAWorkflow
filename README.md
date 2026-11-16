@@ -10,6 +10,7 @@ Base setup, project rules, and workflow documentation for developing **openFPGA*
 .
 ├── .gitignore                  # Quartus artifacts, simulation files (Verilator/Questa), and local configs
 ├── AGENTS.md                   # Model routing rules and strict Cyclone V synthesis guidelines
+├── CLAUDE.md                   # Claude Code rules for offloading heavy tasks to codewhale (token saving)
 ├── README.md                   # Environment, lifecycle scripts, and workflow guide with Strata & Codewhale
 └── docs/
     └── ai-fpga-workflow.md     # Hybrid workflow diagrams and hardware resource allocation
@@ -26,6 +27,8 @@ In this setup, **Strata** (`0.1.61` with native HIP engine `0.1.60` for `gfx1201
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"strata-fpga / codewhale --profile strata"| CW["codewhale (Central Orchestrator)"]
+    Dev -->|"claude (/codewhale to save tokens)"| Claude["Claude Code"]
+    Claude -->|"Offloads heavy RTL/sim/logs"| CW
     Ctrl["strata-local (start / stop / status / logs)"] -->|"Manages background daemon"| Strata
     Strata["Strata HIP Engine (RX 9070 XT)<br/>Qwen3.8-Flash-Next Coder IQ1_M<br/>http://127.0.0.1:8080/v1 (128K ctx)"] <-->|"Local OpenAI API (--profile strata)"| CW
     CW <-->|"Complex escalation"| Cloud["Remote / Cloud (deepseek-flash / Hydrogen Pro)"]
