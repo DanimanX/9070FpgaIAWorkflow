@@ -6,14 +6,14 @@ Agent-assisted development architecture where **Strata** interfaces with **`code
 
 ## 1. Integration Architecture (`Strata -> codewhale`)
 
-**Strata** exposes the local model (`Qwen3.6-35B-A3B` on the RX 9070 XT) to **`codewhale`**, so that **`codewhale`** centralizes project rules parsing ([`AGENTS.md`](../AGENTS.md)), task routing, file editing, and the execution of builds and simulations.
+**Strata** exposes the local model (`Qwen3.8-Flash-Next Coder IQ1_M` on the RX 9070 XT) to **`codewhale`**, so that **`codewhale`** centralizes project rules parsing ([`AGENTS.md`](../AGENTS.md)), task routing, file editing, and the execution of builds and simulations.
 
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"Prompt / Objective"| CW["codewhale (Central Orchestrator)"]
 
     subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM)"]
-        Strata["Strata (Qwen3.6-35B-A3B)"]
+        Strata["Strata (Qwen3.8-Flash-Next Coder IQ1_M)"]
     end
 
     subgraph CloudAPI["Remote Escalation"]
@@ -90,7 +90,7 @@ flowchart TD
     CW -->|"RTL Architecture / FSM / CDC / Timing Closure .sta.rpt / openFPGA JSON / .sdc"| Cloud["cloud-pro (Hydrogen Pro) - Long context & deep reasoning"]
 
     %% Local Branch
-    CW -->|"SV/VHDL Testbenches / Auxiliary modules / LUTs / Warning cleanup"| Local["local-fpga (RX 9070 XT - 16 GB VRAM) - Strata (Qwen3.6-35B-A3B)"]
+    CW -->|"SV/VHDL Testbenches / Auxiliary modules / LUTs / Warning cleanup"| Local["local-fpga (RX 9070 XT - 16 GB VRAM) - Strata (Qwen3.8-Flash-Next Coder IQ1_M)"]
 
     %% Convergence in code
     Cloud --> RTL["Source Code & Configuration: rtl/*.sv | rtl/*.vhd | core.json | .sdc | .qsf"]
@@ -116,7 +116,7 @@ flowchart TD
 
 | Component | Allocated Resource | Role in Pipeline |
 | :--- | :--- | :--- |
-| **AMD RX 9070 XT (16 GB)** | ~14–15 GB VRAM | Local inference with **Strata** (`Qwen3.6-35B-A3B`) connected to `codewhale` |
+| **AMD RX 9070 XT (16 GB)** | ~14–15 GB VRAM | Local inference with **Strata** (`Qwen3.8-Flash-Next Coder IQ1_M`) connected to `codewhale` |
 | **Intel i7-14700KF (20 cores)** | CPU Compute | Orchestration (`codewhale`), RTL simulation (Verilator/Questa), and Quartus Place & Route |
 | **64 GB DDR5 RAM** | ~12–16 GB Quartus + Offload | Cyclone V compilation without swapping + Strata MoE layer offload |
 | **Hydrogen (Pro Account)** | Remote API | Escalation from `codewhale` for architecture, CDC, `.sdc`, and `.sta.rpt` / `.fit.rpt` analysis |

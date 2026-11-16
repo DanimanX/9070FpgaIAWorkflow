@@ -2,7 +2,7 @@
 
 ## 1. Model Routing (`codewhale`)
 
-### Use `local-fpga` (`codewhale --profile qwen` / Strata `Qwen3.6-35B-A3B` on RX 9070 XT):
+### Use `local-fpga` (`codewhale --profile strata` / Strata `Qwen3.8-Flash-Next Coder IQ1_M` on RX 9070 XT):
 - Generation and maintenance of **testbenches** (SystemVerilog / VHDL) and scripts for Verilator or Questa.
 - **Auxiliary modules:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
 - **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference).
