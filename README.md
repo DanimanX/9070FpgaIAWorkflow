@@ -17,9 +17,17 @@ Configuración base, reglas de proyecto y documentación de flujo de trabajo par
 
 ---
 
-## Uso con Strata (`local-fpga`)
+## Uso con Strata (`local-fpga`) y Orquestación con `agy`
 
-En este flujo, **Strata** ejecuta el modelo `Qwen3.6-35B-A3B` de forma local aprovechando los **16 GB de VRAM** de la **RX 9070 XT** (y offload de capas MoE excedentes a los **64 GB DDR5** del sistema cuando es necesario).
+En este flujo, **Strata** ejecuta el modelo `Qwen3.6-35B-A3B` de forma local aprovechando los **16 GB de VRAM** de la **RX 9070 XT** (y offload de capas MoE excedentes a los **64 GB DDR5** del sistema cuando es necesario) y **apunta hacia `agy`**, que actúa como **orquestador central** del proyecto: lee [`AGENTS.md`](./AGENTS.md), decide qué tareas van a Strata o a `cloud-pro`, edita archivos y ejecuta Verilator/Questa y Quartus Prime.
+
+```mermaid
+flowchart LR
+    Dev(["Desarrollador"]) --> Agy["agy (Orquestador Central)"]
+    Strata["Strata (Qwen3.6-35B-A3B en RX 9070 XT)"] <-->|"Apunta a agy como motor local"| Agy
+    Agy <-->|"Escalado complejo"| Cloud["Hydrogen Pro (cloud-pro)"]
+    Agy -->|"Lint / Sim / Síntesis"| Tools["Verilator / Questa / Quartus Prime"]
+```
 
 ### Tareas asignadas a Strata (`local-fpga`)
 
