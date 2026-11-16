@@ -18,7 +18,7 @@ simulation/
 *.done
 *.qdf
 
-# Simulación (Verilator / Questa / GTKWave)
+# Simulation (Verilator / Questa / GTKWave)
 obj_dir/
 work/
 transcript
@@ -26,6 +26,6 @@ transcript
 *.fst
 *.wlf
 
-# Entorno local de agentes / IDE
+# Local agent environment / IDE
 .env
 *.local

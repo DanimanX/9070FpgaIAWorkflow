@@ -1,24 +1,24 @@
-# Reglas de Proyecto: openFPGA + Intel Quartus Prime
+# Project Rules: openFPGA + Intel Quartus Prime
 
-## 1. Enrutamiento de Modelos (`agy`)
+## 1. Model Routing (`codewhale`)
 
-### Usar `local-fpga` (Strata `Qwen3.6-35B-A3B` en RX 9070 XT):
-- Generación y mantenimiento de **testbenches** (SystemVerilog / VHDL) y scripts para Verilator o Questa.
-- **Módulos auxiliares:** contadores, divisores de frecuencia, registros de desplazamiento, tablas LUT (`.mif` / `.hex`) y mapeo de controles (`cont1_key`).
-- **Corrección rápida de warnings** de Quartus (`width mismatch`, señales sin conectar, inferencia de registros).
-- Scripts de automatización (`Makefile`, `build.sh`, empaquetado de `.rbf`).
+### Use `local-fpga` (`codewhale --profile qwen` / Strata `Qwen3.6-35B-A3B` on RX 9070 XT):
+- Generation and maintenance of **testbenches** (SystemVerilog / VHDL) and scripts for Verilator or Questa.
+- **Auxiliary modules:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
+- **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference).
+- Automation scripts (`Makefile`, `build.sh`, `.rbf` packaging).
 
-### Escalar a `cloud-pro` (Hydrogen Pro):
-- Diseño de **arquitectura RTL**, pipelines de vídeo/audio, controladores SDRAM/CRAM y decodificación de buses.
-- **Cruces de dominio de reloj (CDC):** FIFOs asíncronos (`dcfifo`) y sincronizadores multi-etapa entre relojes de sistema y `video_rgb_clock`.
-- Configuración de plataforma **openFPGA** (`core.json`, `video.json`, `data.json`, `interact.json`), pines (`.qsf`) y restricciones **TimeQuest** (`.sdc`).
-- Diagnóstico profundo de reportes `.sta.rpt` y `.fit.rpt` para resolución de *Timing Closure*.
+### Escalate to Cloud / Remote (`deepseek-flash` or Hydrogen Pro):
+- **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
+- **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
+- **openFPGA** platform configuration (`core.json`, `video.json`, `data.json`, `interact.json`), pinouts (`.qsf`), and **TimeQuest** constraints (`.sdc`).
+- In-depth analysis of `.sta.rpt` and `.fit.rpt` reports for *Timing Closure* resolution.
 
 ---
 
-## 2. Reglas Estrictas de Síntesis (Intel Cyclone V / Quartus Prime)
-1. **Target Hardware:** Intel Cyclone V (ej. `5CEBA4F23C8` / `5CEFA7F27C8`). Prohibido usar primitivas o directivas de Xilinx/Vivado (`BUFG`, `MMCME2`, `XPM_*`).
-2. **Primitivas Intel:** Instanciar megafunciones estándar (`altpll`, `altsyncram`, `dcfifo`) o utilizar inferencia RTL limpia reconocida por `quartus_map`.
-3. **Cero Latches:** Toda lógica combinacional (`always_comb` en SV o `process` combinacional en VHDL) debe asignar un valor por defecto a todas sus salidas al inicio del bloque o cubrir todas las ramas `if`/`case`.
-4. **Interfaz openFPGA:** Respetar los puertos estándar de `core_top` (`bridge_*`, `video_rgb`, `video_hs`, `video_vs`, `video_de`, `video_skip`, `audio_l`, `audio_r`).
-5. **Validación:** Antes de dar por cerrado un cambio RTL complejo, indicar el comando de verificación correspondiente (`verilator --lint-only` o `quartus_sh --flow compile`).
+## 2. Strict Synthesis Rules (Intel Cyclone V / Quartus Prime)
+1. **Target Hardware:** Intel Cyclone V (e.g., `5CEBA4F23C8` / `5CEFA7F27C8`). Strictly forbidden to use Xilinx/Vivado primitives or directives (`BUFG`, `MMCME2`, `XPM_*`).
+2. **Intel Primitives:** Instantiate standard megafunctions (`altpll`, `altsyncram`, `dcfifo`) or use clean RTL inference recognized by `quartus_map`.
+3. **Zero Latches:** All combinational logic (`always_comb` in SV or combinational `process` in VHDL) must assign a default value to all outputs at the beginning of the block or cover all `if`/`case` branches.
+4. **openFPGA Interface:** Adhere to standard `core_top` ports (`bridge_*`, `video_rgb`, `video_hs`, `video_vs`, `video_de`, `video_skip`, `audio_l`, `audio_r`).
+5. **Validation:** Before finalizing a complex RTL change, provide the corresponding verification command (`verilator --lint-only` or `quartus_sh --flow compile`).

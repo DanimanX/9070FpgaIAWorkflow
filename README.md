@@ -1,81 +1,81 @@
-# 9070xtStrata — Flujo openFPGA + Intel Quartus Prime con Strata
+# 9070xtStrata — openFPGA + Intel Quartus Prime Workflow with Strata & Codewhale
 
-Configuración base, reglas de proyecto y documentación de flujo de trabajo para desarrollar cores **openFPGA** (Analogue Pocket / Intel Cyclone V) asistido por agentes (`agy` / Antigravity) usando **Strata** (`Qwen3.6-35B-A3B`) en **AMD Radeon RX 9070 XT (16 GB VRAM)** sobre **Arch Linux**, con escalado opcional a **Hydrogen Pro** para tareas de arquitectura y cierre de timing.
+Base setup, project rules, and workflow documentation for developing **openFPGA** cores (Analogue Pocket / Intel Cyclone V) assisted by agents via **`codewhale`** using **Strata** (`Qwen3.6-35B-A3B`) on an **AMD Radeon RX 9070 XT (16 GB VRAM)** running on **Arch Linux**, with optional cloud escalation for complex architecture design and timing closure.
 
 ---
 
-## Estructura del Repositorio
+## Repository Structure
 
 ```text
 .
-├── .gitignore                  # Artefactos de Quartus, simulación (Verilator/Questa) y archivos locales
-├── AGENTS.md                   # Reglas de enrutamiento de modelos y síntesis estricta para Cyclone V
-├── README.md                   # Guía de uso del entorno con Strata
+├── .gitignore                  # Quartus artifacts, simulation files (Verilator/Questa), and local configs
+├── AGENTS.md                   # Model routing rules and strict Cyclone V synthesis guidelines
+├── README.md                   # Environment and workflow guide with Strata & Codewhale
 └── docs/
-    └── ai-fpga-workflow.md     # Diagrama de flujo híbrido y distribución de recursos de hardware
+    └── ai-fpga-workflow.md     # Hybrid workflow diagrams and hardware resource allocation
 ```
 
 ---
 
-## Uso con Strata (`local-fpga`) y Orquestación con `agy`
+## Usage with Strata (`local-fpga`) and Orchestration with `codewhale`
 
-En este flujo, **Strata** ejecuta el modelo `Qwen3.6-35B-A3B` de forma local aprovechando los **16 GB de VRAM** de la **RX 9070 XT** (y offload de capas MoE excedentes a los **64 GB DDR5** del sistema cuando es necesario) y **apunta hacia `agy`**, que actúa como **orquestador central** del proyecto: lee [`AGENTS.md`](./AGENTS.md), decide qué tareas van a Strata o a `cloud-pro`, edita archivos y ejecuta Verilator/Questa y Quartus Prime.
+In this workflow, **Strata** runs the `Qwen3.6-35B-A3B` model locally leveraging the **16 GB VRAM** of the **RX 9070 XT** (and offloading excess MoE layers to the system's **64 GB DDR5** when needed). **`codewhale`** acts as the **central orchestrator** of the project: it reads [`AGENTS.md`](./AGENTS.md), routes tasks between local Strata and cloud/remote models, edits files, and executes Verilator/Questa and Quartus Prime.
 
 ```mermaid
 flowchart LR
-    Dev(["Desarrollador"]) --> Agy["agy (Orquestador Central)"]
-    Strata["Strata (Qwen3.6-35B-A3B en RX 9070 XT)"] <-->|"Apunta a agy como motor local"| Agy
-    Agy <-->|"Escalado complejo"| Cloud["Hydrogen Pro (cloud-pro)"]
-    Agy -->|"Lint / Sim / Síntesis"| Tools["Verilator / Questa / Quartus Prime"]
+    Dev(["Developer"]) --> CW["codewhale (Central Orchestrator)"]
+    Strata["Strata (Qwen3.6-35B-A3B on RX 9070 XT)"] <-->|"Local profile engine"| CW
+    CW <-->|"Complex escalation"| Cloud["Remote / Cloud (deepseek-flash / Hydrogen Pro)"]
+    CW -->|"Lint / Sim / Synthesis"| Tools["Verilator / Questa / Quartus Prime"]
 ```
 
-### Tareas asignadas a Strata (`local-fpga`)
+### Tasks Assigned to Strata (`local-fpga`)
 
-Según lo definido en [`AGENTS.md`](./AGENTS.md):
+As defined in [`AGENTS.md`](./AGENTS.md):
 
-- Generación y mantenimiento de **testbenches** (SystemVerilog / VHDL) y scripts para Verilator o Questa.
-- **Módulos auxiliares:** contadores, divisores de frecuencia, registros de desplazamiento, tablas LUT (`.mif` / `.hex`) y mapeo de controles (`cont1_key`).
-- **Corrección rápida de warnings** de Quartus (`width mismatch`, señales sin conectar, inferencia de registros).
-- Scripts de automatización (`Makefile`, `build.sh`, empaquetado de `.rbf`).
+- Generation and maintenance of **testbenches** (SystemVerilog / VHDL) and scripts for Verilator or Questa.
+- **Auxiliary modules:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
+- **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference).
+- Automation scripts (`Makefile`, `build.sh`, `.rbf` packaging).
 
-### Escalado a `cloud-pro` (Hydrogen Pro)
+### Escalation to Cloud / Remote
 
-Las tareas de mayor complejidad se escalan a `cloud-pro`:
+Higher complexity tasks are escalated to cloud/remote models:
 
-- Diseño de **arquitectura RTL**, pipelines de vídeo/audio, controladores SDRAM/CRAM y decodificación de buses.
-- **Cruces de dominio de reloj (CDC):** FIFOs asíncronos (`dcfifo`) y sincronizadores multi-etapa entre relojes de sistema y `video_rgb_clock`.
-- Configuración de plataforma **openFPGA** (`core.json`, `video.json`, `data.json`, `interact.json`), pines (`.qsf`) y restricciones **TimeQuest** (`.sdc`).
-- Diagnóstico profundo de reportes `.sta.rpt` y `.fit.rpt` para resolución de *Timing Closure*.
+- **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
+- **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
+- **openFPGA** platform configuration (`core.json`, `video.json`, `data.json`, `interact.json`), pinouts (`.qsf`), and **TimeQuest** constraints (`.sdc`).
+- In-depth analysis of `.sta.rpt` and `.fit.rpt` reports for *Timing Closure* resolution.
 
 ---
 
-## Hardware y Entorno Objetivo
+## Hardware and Target Environment
 
-| Componente | Especificación | Rol |
+| Component | Specification | Role |
 | :--- | :--- | :--- |
-| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Inferencia local con **Strata** (`Qwen3.6-35B-A3B`, ~14–15 GB VRAM) |
-| **CPU** | Intel i7-14700KF (20 cores) | Simulación RTL (Verilator / Questa) y Place & Route de Quartus |
-| **RAM** | 64 GB DDR5 | Compilación Cyclone V (~12–16 GB) + offload de capas MoE de Strata |
-| **OS** | Arch Linux | Entorno de desarrollo, simulación y síntesis |
-| **FPGA Target** | Intel Cyclone V (`5CEBA4F23C8` / `5CEFA7F27C8`) | Síntesis y generación de bitstream `.rbf` para openFPGA |
+| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference with **Strata** (`Qwen3.6-35B-A3B`, ~14–15 GB VRAM) |
+| **CPU** | Intel i7-14700KF (20 cores) | RTL simulation (Verilator / Questa) and Quartus Place & Route |
+| **RAM** | 64 GB DDR5 | Cyclone V compilation (~12–16 GB) + Strata MoE layer offload |
+| **OS** | Arch Linux | Development, simulation, and synthesis environment |
+| **Target FPGA** | Intel Cyclone V (`5CEBA4F23C8` / `5CEFA7F27C8`) | Synthesis and `.rbf` bitstream generation for openFPGA |
 
 ---
 
-## Reglas de Síntesis y Validación
+## Synthesis Rules and Validation
 
-Todo código RTL generado o modificado en proyectos que adopten este flujo debe cumplir las reglas de [`AGENTS.md`](./AGENTS.md):
+All RTL code generated or modified in projects following this workflow must comply with the rules in [`AGENTS.md`](./AGENTS.md):
 
-1. **Solo primitivas Intel Cyclone V** (`altpll`, `altsyncram`, `dcfifo` o inferencia RTL limpia para `quartus_map`); prohibido usar primitivas Xilinx/Vivado.
-2. **Cero latches** en bloques combinacionales (`always_comb` / `process`).
-3. **Interfaz estándar `core_top` de openFPGA** (`bridge_*`, `video_rgb`, `video_hs`, `video_vs`, `video_de`, `video_skip`, `audio_l`, `audio_r`).
-4. **Validación antes de cerrar cambios RTL:**
+1. **Intel Cyclone V primitives only** (`altpll`, `altsyncram`, `dcfifo` or clean RTL inference for `quartus_map`); strictly forbidden to use Xilinx/Vivado primitives.
+2. **Zero latches** in combinational blocks (`always_comb` / `process`).
+3. **Standard openFPGA `core_top` interface** (`bridge_*`, `video_rgb`, `video_hs`, `video_vs`, `video_de`, `video_skip`, `audio_l`, `audio_r`).
+4. **Validation before committing RTL changes:**
 
 ```bash
-# Verificación rápida de lint con Verilator
-verilator --lint-only -Wall <archivo_top>.sv
+# Fast lint check with Verilator
+verilator --lint-only -Wall <top_file>.sv
 
-# Compilación completa con Intel Quartus Prime
-quartus_sh --flow compile <proyecto>.qpf
+# Full compilation with Intel Quartus Prime
+quartus_sh --flow compile <project>.qpf
 ```
 
-Para más detalles sobre el pipeline completo y el diagrama de flujo, consulta [`docs/ai-fpga-workflow.md`](./docs/ai-fpga-workflow.md).
+For more details on the complete pipeline and workflow diagrams, see [`docs/ai-fpga-workflow.md`](./docs/ai-fpga-workflow.md).
