@@ -1,0 +1,31 @@
+# Intel Quartus Prime build artifacts
+db/
+incremental_db/
+output_files/
+greybox_tmp/
+hc_output/
+simulation/
+*.rpt
+*.summary
+*.smsg
+*.pin
+*.sof
+*.pof
+*.jic
+*.rbf
+*.qws
+*.bak
+*.done
+*.qdf
+
+# Simulación (Verilator / Questa / GTKWave)
+obj_dir/
+work/
+transcript
+*.vcd
+*.fst
+*.wlf
+
+# Entorno local de agentes / IDE
+.env
+*.local
