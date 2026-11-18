@@ -1,56 +1,48 @@
 # Claude Code Project Instructions
 
-Follow all rules in [`AGENTS.md`](./AGENTS.md).
+Follow all rules in [`AGENTS.md`](./AGENTS.md). The hybrid delegation workflow is defined in the skill [`hybrid-local-ai`](./skills/hybrid-local-ai/SKILL.md) (installed at `~/.claude/skills/hybrid-local-ai/`); load it whenever delegating. It covers **FPGA, DevOps/IaC/FinOps and Rust VST3/CLAP plugins**.
 
-## Token-Saving Delegation via `qwen-rtl` & `codewhale`
+## Hybrid Delegation: Strata + `qwen-rtl` / `qwen-vl` + `codewhale`
 
-To save Claude tokens on this project, offload heavy reading, structural inventories, and delegable tasks via `Bash`:
+Claude is the lead architect: it decides, reviews and verifies. Bounded work goes local (0 cloud tokens); delegable reasoning and large context go to `codewhale`.
 
-- **Use `qwen-rtl` ONLY for structural / inventory work** (local `qwen2.5-coder-14b-fpga` via Ollama Vulkan on RX 9070 XT, ~16 GB VRAM with 32K ctx, 0 cloud tokens, direct stdin/CLI without tool-calling overhead):
-  - Inventories and summaries of RTL modules (`.sv`, `.v`, `.vhd`): ports, parameters, clocks/resets, FSM state lists, dependencies, and lint-style checks (latches, width mismatches): `qwen-rtl --audit -f <file>`
-  - Boilerplate, auxiliary modules (counters, dividers, shift registers, LUTs, `cont1_key` mapping), and **testbench skeletons** (Claude or DeepSeek fills in timing-dependent checks): `qwen-rtl --tb -f <file>`, `qwen-rtl --cocotb -f <file>`
-  - Focused questions via stdin or files: `qwen-rtl -f <file> "<focused question>"`
-  - Manage VRAM lifecycle: `qwen-local status`, `qwen-local subir`, `qwen-local bajar` (free VRAM after batch work).
-  - **Do NOT use Qwen for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols.** (Measured 2026-11-17 on `psk_sram.sv`: structural inventory was accurate, but the cycle trace was wrong — it ignored the one-clock register delay and invented `OE#`/bus contention.)
-- **Use `qwen-vl` for local image/screenshot analysis** (`qwen2.5vl:7b` on Ollama Vulkan, ~6.2 GB VRAM with `num_ctx=16384`, 0 cloud tokens):
-  - General UI captures, block diagrams/schematics, and crisp normal-font text/logs: `qwen-vl --ocr -f img.png`, `qwen-vl --diagram -f img.png`, `qwen-vl --ui -f img.png`.
-  - Automatically unloads `qwen2.5-coder-14b-fpga` before running and uses `keep_alive=60s` (pass `--restore` to reload the 14B coder afterward).
-  - **Do NOT use `qwen-vl` for exact hex/register OCR in pixelated console/Analogue Pocket fonts or cycle-by-cycle waveform counting** in GTKWave/SignalTap captures. (Measured 2026-11-17 on `IMG_20261115_172933.jpg`: `qwen2.5vl:7b` extracted all 15 lines, but misread similar pixelated hex glyphs such as `8`/`0`, `D`/`0`, `V`/`U`, `HDD`/`ABBT`, `PC`/`PLX`.) Inspect those directly in Claude or export `.vcd`/`.csv`.
-- **Use `codewhale` (default profile `deepseek-flash`)** for everything delegable that Qwen must not do:
-  - Timing / cycle-level analysis, protocol and waveform reasoning, and testbench checking logic.
-  - Autonomous multi-file tool-calling (`read`/`edit`/`bash`) and context exceeding ~32K tokens.
-  - Claude still makes the final diagnosis and decisions and verifies DeepSeek's output against the code and simulations.
-  - Note: Do **not** use `codewhale --profile qwen exec` for autonomous tool-calling (Ollama's Go template parser does not unwrap Qwen2.5-Coder's fenced JSON tool calls); use `qwen-rtl` instead for local work.
-- **Keep in Claude** (high-value architectural reasoning & final verification):
-  - Complex RTL architecture, CDC (`dcfifo`), openFPGA platform JSONs, `.qsf`/`.sdc` constraints, `.sta.rpt` timing closure, and final verification against code and simulations (`verilator --lint-only`, `iverilog`, `quartus_sh`).
+- **Strata (`strata-local ask`) — default local minion** (Qwen3.6-35B-A3B UD-Q4_K_XL, MoE 3B active, 32K ctx, `http://127.0.0.1:8080/v1`, full RX 9070 XT VRAM + ~12–16 GB RAM):
+  - Summaries of files/logs (`--sum`), structural RTL inventory (`--rtl`), Terraform/Helm/Ansible/CI boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`), commit messages and docs.
+  - Lifecycle: `strata-local status | start | stop | logs | plan`. `start` unloads Ollama and refuses while Quartus or `memtester` run or with <24 GB RAM available. **Stop Strata before Quartus compiles.**
+  - As an agent: `codewhale --profile strata exec --max-turns 8 ...`, one file / one question only (it wanders on open research, measured 2026-11-16).
+- **`qwen-rtl` (Ollama Vulkan, `qwen2.5-coder-14b-fpga`, VRAM only)** — structural RTL inventory and TB skeletons when Strata is down, especially **during Quartus compiles** (it uses no system RAM): `qwen-rtl --audit|--tb|--cocotb -f <file>`; VRAM with `qwen-local status|subir|bajar`.
+- **`qwen-vl` (`qwen2.5vl:7b`)** — UI captures, diagrams, crisp text: `qwen-vl --ocr|--diagram|--ui -f img.png`. Not for pixelated hex/register fonts or waveform cycle counting (measured 2026-11-17 on `IMG_20261115_172933.jpg`).
+- **VRAM is exclusive:** Strata OR Ollama. Run `strata-local stop` before `qwen-rtl` / `qwen-vl`.
+- **No local model does timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning or bus protocols.** (Measured 2026-11-17 on `psk_sram.sv`: structural inventory accurate, cycle trace wrong — ignored the one-clock register delay and invented `OE#`/bus contention.)
+- **`codewhale` (default `deepseek-flash`)** — timing/protocol/waveform reasoning, testbench checking logic, CDC, autonomous multi-file edits, >32K context. Do **not** use `codewhale --profile qwen exec` for tool-calling.
+- **Keep in Claude:** RTL architecture, CDC (`dcfifo`), openFPGA JSONs, `.qsf`/`.sdc`, `.sta.rpt` timing closure, DSP design and realtime safety in Rust, cloud IAM/network/security, and final verification.
 
 ### Quick Invocation
 ```bash
-# Check / preload / unload local VRAM
-qwen-local status
-qwen-local subir
-qwen-local bajar
+strata-local status
+strata-local start                      # batches only; never during Quartus
+strata-local ask --rtl  -f rtl/mod.sv
+strata-local ask --iac  "Terraform module: AWS VPC 3 AZ with FinOps tags"
+strata-local ask --rust -f src/lib.rs "add FloatParam 'drive' 0..24 dB with smoother"
+git diff | strata-local ask --review
+strata-local stop                       # before quartus_sh / qwen-rtl / qwen-vl
 
-# Local RTL structural audit, testbench skeleton & focused question
 qwen-rtl --audit -f rtl/mod.sv
 qwen-rtl --tb -f rtl/mod.sv > tb/tb_mod.sv
-qwen-rtl -f rtl/mod.sv "<focused question>"
 
-# Remote read-only audit / large multi-file analysis (deepseek-flash)
 codewhale exec --auto --sandbox read-only "<focused prompt with file paths/line ranges>"
-
-# Remote workspace edits / refactoring (deepseek-flash)
 codewhale exec --auto --sandbox workspace-write "<focused prompt with verification criteria>"
-
-# Resume a previous Codewhale session
 codewhale exec --resume <SESSION_ID> --auto --sandbox workspace-write "<follow-up>"
 ```
 
 ### Verification Rule
-After writing or generating any code/testbench (via `qwen-rtl` or `codewhale`):
-1. Inspect the output / `git diff` to verify correctness.
-2. Run relevant linters/tests (e.g., `verilator --lint-only`, `iverilog`, `quartus_sh`).
-3. Summarize the verified result concisely to the user.
+All local/DeepSeek output is a draft. Inspect the output or `git diff`, then run:
+- FPGA: `verilator --lint-only`, `iverilog`, `quartus_sh`.
+- IaC: `terraform fmt -check -recursive` + `terraform validate` (or `tofu`), `tflint`, `helm lint`, `ansible-lint`, `actionlint`.
+- Rust: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, `cargo xtask bundle <plugin> --release`.
+If a local model is wrong twice on the same task, escalate to `codewhale` or do it in Claude. Summarize the verified result concisely.
 
 ### Operational Notes
-- **Do NOT use `pkill -f 'codewhale ...'` from Bash:** the pattern matches the shell itself and kills it (exit 144). Kill by PID instead.
+- **Do NOT use `pkill -f 'codewhale ...'` or `pkill -f strata` from Bash:** the pattern matches the shell itself (exit 144). Kill by PID.
+- **Strata & btrfs:** retired 2026-11-17 after a corrupted file on the OS btrfs; reinstalled 2026-11-18 at the user's request. If corruption reappears (`dmesg | grep -i btrfs`, `btrfs scrub status /`), stop Strata and tell the user.
+- **Strata tuning:** never combine `--tune` with other option changes; tune separately on an idle machine (`strata launch --preset daily --tune quick --save-preset daily`).

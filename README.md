@@ -12,6 +12,10 @@ Base setup, project rules, and workflow documentation for developing **openFPGA*
 ├── AGENTS.md                   # Model routing rules and strict Cyclone V synthesis guidelines
 ├── CLAUDE.md                   # Claude Code rules for offloading RTL reading & testbenches to qwen-rtl / codewhale
 ├── README.md                   # Environment, lifecycle scripts, and workflow guide
+├── scripts/
+│   └── strata-local            # Strata lifecycle + `ask` minion (install to ~/.local/bin)
+├── skills/
+│   └── hybrid-local-ai/        # Claude Code skill: hybrid routing for FPGA, DevOps/IaC and Rust VST (install to ~/.claude/skills)
 └── docs/
     └── ai-fpga-workflow.md     # Hybrid workflow diagrams and hardware resource allocation
 ```
@@ -64,6 +68,39 @@ Higher complexity tasks and all timing-sensitive delegable work stay in Claude C
 
 ---
 
+## Strata Daily Minion (Qwen3.6-35B-A3B) — FPGA, DevOps/IaC and Rust VST
+
+[Strata](https://github.com/Niko1221/Strata) serves **Qwen3.6-35B-A3B UD-Q4_K_XL** (Unsloth GGUF + MTP draft layer) on the RX 9070 XT in hybrid mode: hot experts in the 16 GB of VRAM, the rest in RAM, 32K context, OpenAI-compatible API on `http://127.0.0.1:8080/v1`. It is the default local minion for bounded work in every domain, wrapped by [`scripts/strata-local`](./scripts/strata-local).
+
+**Why this model (2026-11-18):**
+
+| Candidate in Strata | RAM for the model | Verdict for this box (16 GB VRAM, 64 GB RAM, Quartus) |
+| --- | ---: | --- |
+| **Qwen3.6-35B-A3B UD-Q4_K_XL** | ~32 GB plan, 22.9 GB file | **Chosen.** General + code (IaC, Rust, Spanish), MoE 3B active (fast decode), smallest download, leaves room for Quartus, Apache 2.0 |
+| Qwen3.8-Flash-Next Coder IQ1_M | 23 GB experts + buffers | Code-only, weak outside code and in Spanish; wandered as an agent (2026-11-16) |
+| Qwen3.8-Flash-Next IQ2_XS / IQ3_S | 39–55 GB | Better quality but leaves no RAM for Quartus/Verilator |
+| Unsloth UD-IQ4_XS+ / NVFP4 | 72–136 GB | Do not fit / NVIDIA only |
+
+```bash
+# Install (user space, ~/.local) and wire up
+curl -fsSL https://github.com/Niko1221/Strata/releases/latest/download/install.sh -o /tmp/strata-install.sh && sh /tmp/strata-install.sh
+install -m755 scripts/strata-local ~/.local/bin/ && cp -r skills/hybrid-local-ai ~/.claude/skills/
+
+strata-local plan     # what will be downloaded (~24 GB), nothing changes
+strata-local start    # unloads Ollama, first run: --tune skip + saves preset "daily"
+strata-local ask --iac  "Terraform: GCS bucket with lifecycle and FinOps labels"
+strata-local ask --rust -f src/lib.rs "add a bypass BoolParam"
+strata-local ask --rtl  -f rtl/core_top.sv
+strata-local stop     # before Quartus, qwen-rtl or qwen-vl
+```
+
+`codewhale` profile `strata` (in `~/.codewhale/config.toml`) is only for one-file tasks with `--max-turns 8`.
+
+> [!WARNING]
+> **Safety:** Strata was retired on 2026-11-17 after a corrupted file on the OS btrfs and reinstalled on 2026-11-18. `strata-local start` refuses to run while `memtester` or Quartus run or with <24 GB RAM available. If corruption reappears (`dmesg | grep -i btrfs`, `btrfs scrub status /`), stop Strata. Never combine `--tune` with other option changes; tune on an idle machine.
+
+---
+
 ## Local Lifecycle & Usage (`qwen-local` & `qwen-rtl`)
 
 Local VRAM and inference management is handled via `~/.local/bin/qwen-local` and `~/.local/bin/qwen-rtl`:
@@ -111,9 +148,9 @@ codewhale exec --resume <SESSION_ID> --auto --sandbox workspace-write "<follow-u
 
 | Component | Specification | Role |
 | :--- | :--- | :--- |
-| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference via **Ollama Vulkan** (`qwen2.5-coder-14b-fpga`, 100% GPU, 32K ctx) |
+| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference: **Strata** (Qwen3.6-35B-A3B, HIP, hybrid VRAM+RAM) or **Ollama Vulkan** (`qwen2.5-coder-14b-fpga`, 100% GPU) — exclusive |
 | **CPU** | Intel i7-14700KF / i9-14900K | RTL simulation (Verilator / Questa) and Quartus Place & Route |
-| **RAM** | 64 GB DDR5 | 100% free for Cyclone V Quartus compilation and simulation (no GPU spill) |
+| **RAM** | 64 GB DDR5 | Quartus/simulation; Strata takes ~12–16 GB while running (stop it before Quartus) |
 | **OS** | Arch Linux | Development, simulation, and synthesis environment |
 | **Target FPGA** | Intel Cyclone V (`5CEBA4F23C8` / `5CEFA7F27C8`) | Synthesis and `.rbf` bitstream generation for openFPGA |
 

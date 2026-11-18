@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# strata-local — ciclo de vida y "minion" CLI de Strata (Qwen3.6-35B-A3B UD-Q4_K_XL) en la RX 9070 XT.
+#
+#   strata-local start [--force]   Libera VRAM de Ollama y arranca Strata (preset "daily", puerto 8080)
+#   strata-local stop              Detiene Strata
+#   strata-local status            Estado del servidor, RAM libre y VRAM
+#   strata-local logs              Últimas líneas del log del motor
+#   strata-local plan              Muestra el plan de strata launch (no descarga ni cambia nada)
+#   strata-local ask [--rtl|--iac|--rust|--review|--sum] [-f FILE]... ["pregunta"]   (stdin también)
+#
+# Reglas (ver ~/.claude/skills/hybrid-local-ai/SKILL.md):
+#  - No arranca si memtester o Quartus están corriendo, ni con menos de STRATA_MIN_FREE_GB de RAM disponible.
+#  - Nunca combinar --tune con otros cambios de opciones; afinar aparte con la máquina en reposo.
+set -euo pipefail
+
+STRATA_BIN="${STRATA_BIN:-$HOME/.local/bin/strata}"
+URL="${STRATA_URL:-http://127.0.0.1:8080}"
+PORT="${STRATA_PORT:-8080}"
+PRESET="${STRATA_PRESET:-daily}"
+FAMILY="${STRATA_FAMILY:-qwen36}"
+MODEL="${STRATA_MODEL:-UD-Q4_K_XL}"
+CONTEXT="${STRATA_CONTEXT:-32k}"
+MIN_FREE_GB="${STRATA_MIN_FREE_GB:-24}"
+MAX_TOKENS="${STRATA_MAX_TOKENS:-4096}"
+
+die() { echo "strata-local: $*" >&2; exit 1; }
+up() { curl -sf --max-time 3 "$URL/v1/models" >/dev/null 2>&1; }
+need_bin() { [ -x "$STRATA_BIN" ] || die "Strata no está instalado ($STRATA_BIN). Instalar: curl -fsSL https://github.com/Niko1221/Strata/releases/latest/download/install.sh -o /tmp/strata-install.sh && sh /tmp/strata-install.sh"; }
+mem_avail_gb() { awk '/MemAvailable/ {printf "%d", $2/1048576}' /proc/meminfo; }
+has_preset() { "$STRATA_BIN" launch --list-presets 2>/dev/null | grep -qw "$PRESET"; }
+
+free_ollama_vram() {
+  if curl -sf --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+    ollama ps 2>/dev/null | awk 'NR>1 {print $1}' | while read -r m; do
+      [ -n "$m" ] && { echo "Descargando $m de Ollama para liberar VRAM..."; ollama stop "$m" >/dev/null 2>&1 || true; }
+    done
+  fi
+}
+
+preflight() {
+  local force="${1:-}"
+  pgrep -x memtester >/dev/null && die "memtester está corriendo; no arranco Strata hasta que termine la prueba de RAM."
+  if [ "$force" != "--force" ]; then
+    pgrep -f 'quartus_(map|fit|sta|asm|syn|sh)' >/dev/null && die "Quartus está compilando; espera a que termine (o --force)."
+    local avail; avail=$(mem_avail_gb)
+    [ "$avail" -ge "$MIN_FREE_GB" ] || die "solo ${avail} GB de RAM disponible (< ${MIN_FREE_GB} GB). Cierra cargas pesadas o usa --force."
+  fi
+}
+
+case "${1:-status}" in
+  start|subir|up)
+    need_bin
+    up && { echo "Strata ya está activo en $URL"; exit 0; }
+    preflight "${2:-}"
+    free_ollama_vram
+    if has_preset; then
+      "$STRATA_BIN" launch --preset "$PRESET" --no-tui --yes
+    else
+      # Primer arranque: sin --tune (no mezclar tuning con cambios de opciones) y guarda el preset.
+      "$STRATA_BIN" launch --family "$FAMILY" --model "$MODEL" --context "$CONTEXT" \
+        --vision cpu --parallel 1 --tune skip --access local --no-api-key --port "$PORT" \
+        --save-preset "$PRESET" --no-tui --yes
+    fi
+    echo "Esperando a que $URL responda (la primera vez descarga ~24 GB)..."
+    for _ in $(seq 1 600); do up && { echo "Strata listo en $URL"; exit 0; }; sleep 3; done
+    die "Strata no respondió en 30 min; revisa: strata-local logs"
+    ;;
+  stop|bajar|down)
+    need_bin
+    if has_preset; then "$STRATA_BIN" launch --stop --preset "$PRESET" || "$STRATA_BIN" launch --stop; else "$STRATA_BIN" launch --stop; fi
+    ;;
+  status|estado)
+    if up; then echo "Strata: ACTIVO en $URL"; curl -sf "$URL/v1/models" | python3 -c 'import sys,json; print("  modelos:", ", ".join(m["id"] for m in json.load(sys.stdin).get("data",[])))' 2>/dev/null || true
+    else echo "Strata: INACTIVO"; fi
+    echo "RAM disponible: $(mem_avail_gb) GB (mínimo para arrancar: ${MIN_FREE_GB} GB)"
+    pgrep -x memtester >/dev/null && echo "AVISO: memtester en curso"
+    pgrep -f 'quartus_(map|fit|sta|asm|syn|sh)' >/dev/null && echo "AVISO: Quartus compilando"
+    command -v ollama >/dev/null && { echo "Ollama cargado:"; ollama ps 2>/dev/null | sed 's/^/  /'; }
+    [ -x "$STRATA_BIN" ] && "$STRATA_BIN" launch --status 2>/dev/null | tail -5 || true
+    ;;
+  logs|log)
+    need_bin
+    f=$(ls -t "$HOME"/.local/state/strata/launch/*.engine.log 2>/dev/null | head -1 || true)
+    [ -n "$f" ] && tail -n "${2:-40}" "$f" || "$STRATA_BIN" logs 2>&1 | tail -n "${2:-40}"
+    ;;
+  plan)
+    need_bin
+    "$STRATA_BIN" launch --plan --family "$FAMILY" --model "$MODEL" --context "$CONTEXT" --vision cpu --parallel 1
+    ;;
+  ask)
+    shift
+    up || die "Strata no está activo (strata-local start)."
+    role="general"; files=(); q=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --rtl|--audit) role="rtl" ;;
+        --iac) role="iac" ;;
+        --rust) role="rust" ;;
+        --review) role="review" ;;
+        --sum) role="sum" ;;
+        -f) shift; [ -f "$1" ] || die "no existe: $1"; files+=("$1") ;;
+        *) q="${q:+$q }$1" ;;
+      esac
+      shift
+    done
+    STDIN=""; [ -t 0 ] || STDIN="$(cat)"
+    ROLE="$role" Q="$q" STDIN="$STDIN" URL="$URL" MAX_TOKENS="$MAX_TOKENS" python3 -I - "${files[@]}" <<'PY'
+import json, os, re, sys, urllib.request
+roles = {
+ "general": "You are a precise senior engineer. Answer concisely. If unsure, say so; never invent APIs, flags or file contents.",
+ "rtl": ("You are an FPGA RTL auditor (Intel Cyclone V, Quartus). Give a STRUCTURAL inventory only: ports with widths, "
+         "parameters, clocks/resets, FSM state lists, instantiated modules, latch/width-mismatch risks. "
+         "Do NOT describe cycle-by-cycle timing, clock phase or bus protocol behaviour; write 'ESCALATE: timing' if asked."),
+ "iac": ("You are a DevOps/IaC engineer (Terraform/OpenTofu, Kubernetes/Helm, Ansible, GitHub Actions/GitLab CI). "
+         "Produce idiomatic, minimal code with FinOps tags (owner, env, cost-center). Never quote cloud prices; "
+         "pricing comes from infracost. Mark anything you are unsure about with TODO."),
+ "rust": ("You are a Rust audio-plugin engineer (nih-plug, VST3/CLAP, realtime DSP). Write safe, idiomatic Rust 2021. "
+          "In process() never allocate, lock, or do I/O; use atomics/smoothers for params. Prefer explicit types and "
+          "#[inline] only where measured. Say when something needs cargo check/clippy verification."),
+ "review": "You are a strict code reviewer. List concrete defects with file:line, most severe first. No praise, no restating code.",
+ "sum": "Summarize the given files for another engineer: purpose, public interface, dependencies, risks. Bullets, max 25 lines.",
+}
+parts = []
+for p in sys.argv[1:]:
+    with open(p, errors="replace") as fh:
+        parts.append(f"=== FILE: {p} ===\n{fh.read()}")
+if os.environ.get("STDIN"):
+    parts.append("=== STDIN ===\n" + os.environ["STDIN"])
+q = os.environ.get("Q") or "Analyze the input according to your role."
+body = {
+  "model": "local",
+  "messages": [{"role": "system", "content": roles[os.environ["ROLE"]]},
+               {"role": "user", "content": ("\n\n".join(parts) + "\n\n" if parts else "") + "TASK: " + q}],
+  "temperature": 0.2, "max_tokens": int(os.environ["MAX_TOKENS"]), "stream": False,
+}
+try:
+    with urllib.request.urlopen(os.environ["URL"] + "/v1/models", timeout=5) as r:
+        ids = [m["id"] for m in json.load(r).get("data", [])]
+        if ids: body["model"] = ids[0]
+except Exception:
+    pass
+req = urllib.request.Request(os.environ["URL"] + "/v1/chat/completions", json.dumps(body).encode(),
+                             {"Content-Type": "application/json"})
+with urllib.request.urlopen(req, timeout=900) as r:
+    out = json.load(r)["choices"][0]["message"]["content"] or ""
+print(re.sub(r"<think>.*?</think>\s*", "", out, flags=re.S).strip())
+PY
+    ;;
+  *)
+    sed -n '2,13p' "$0"; exit 1 ;;
+esac

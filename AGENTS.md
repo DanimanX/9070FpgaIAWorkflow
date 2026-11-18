@@ -1,5 +1,11 @@
 # Project Rules: openFPGA + Intel Quartus Prime
 
+## 0. Hybrid Local Minion: Strata (all domains)
+
+- **`strata-local ask`** (Strata, Qwen3.6-35B-A3B UD-Q4_K_XL, 32K ctx, `http://127.0.0.1:8080/v1`) is the default local minion for bounded work in **FPGA, DevOps/IaC and Rust VST3/CLAP**: summaries (`--sum`), structural RTL inventory (`--rtl`, same limits as `qwen-rtl`), IaC boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`).
+- **VRAM is exclusive** between Strata and Ollama (`qwen-rtl`, `qwen-vl`). **Stop Strata before Quartus compiles** (`strata-local stop`); during compiles use `qwen-rtl` (VRAM only, no system RAM).
+- Agent use only as `codewhale --profile strata exec --max-turns 8`, one file / one question. Full rules: [`skills/hybrid-local-ai/SKILL.md`](./skills/hybrid-local-ai/SKILL.md).
+
 ## 1. Model Routing (`qwen-rtl` & `codewhale`)
 
 ### Use local `qwen-rtl` (`qwen2.5-coder-14b-fpga` via Ollama Vulkan on RX 9070 XT, 100% GPU) ONLY for structural / inventory work:

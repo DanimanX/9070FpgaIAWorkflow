@@ -16,6 +16,7 @@ flowchart LR
     Dev(["Developer"]) -->|"Prompt / Objective"| Claude["Claude Code (Lead Architect)"]
 
     subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM, Swapped)"]
+        Strata["Strata HIP: Qwen3.6-35B-A3B UD-Q4_K_XL<br/>(daily minion: FPGA / IaC / Rust VST, 32K ctx, VRAM+RAM)"]
         Qwen["Ollama Vulkan: qwen2.5-coder-14b-fpga<br/>(Q5_K_M, 100% GPU, 32K ctx)"]
         QwenVL["Ollama Vulkan: qwen2.5vl:7b<br/>(Vision OCR/Diagrams/UI, ~5.4 GB, 60s TTL)"]
     end
@@ -30,6 +31,8 @@ flowchart LR
         Quartus["Intel Quartus Prime (quartus_sh)"]
     end
 
+    Claude <-->|"strata-local ask (--sum / --rtl / --iac / --rust / --review)"| Strata
+    Strata -.->|"Exclusive VRAM: unloads Ollama"| Qwen
     Claude <-->|"qwen-rtl (--audit / --tb / -f)"| Qwen
     Claude <-->|"qwen-vl (--ocr / --diagram / --ui)"| QwenVL
     QwenVL -.->|"Auto-unloads 14B coder"| Qwen
