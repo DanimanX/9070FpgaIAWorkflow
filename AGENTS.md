@@ -1,14 +1,15 @@
 # Project Rules: openFPGA + Intel Quartus Prime
 
-## 1. Model Routing (`codewhale`)
+## 1. Model Routing (`qwen-rtl` & `codewhale`)
 
-### Use `local-fpga` (`codewhale --profile strata` / Strata `Qwen3.8-Flash-Next Coder IQ1_M` on RX 9070 XT):
-- Generation and maintenance of **testbenches** (SystemVerilog / VHDL) and scripts for Verilator or Questa.
+### Use local `qwen-rtl` (`qwen2.5-coder-14b-fpga` via Ollama Vulkan on RX 9070 XT, 100% GPU):
+- **RTL reading & auditing:** summarizing ports, parameters, clock/reset domains, FSMs, and dependencies (`qwen-rtl --audit -f <file>`).
+- **Testbench generation:** SystemVerilog/Verilog (`qwen-rtl --tb -f <file>`) and `cocotb` (`qwen-rtl --cocotb -f <file>`).
 - **Auxiliary modules:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
-- **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference).
-- Automation scripts (`Makefile`, `build.sh`, `.rbf` packaging).
+- **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference) and automation scripts (`Makefile`, `build.sh`, `.rbf` packaging).
 
-### Escalate to Cloud / Remote (`deepseek-flash` or Hydrogen Pro):
+### Escalate to Remote (`codewhale` `deepseek-flash` / Claude Code):
+- Autonomous multi-file edits (`codewhale exec --auto --sandbox workspace-write`) or contexts exceeding 32K tokens.
 - **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
 - **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
 - **openFPGA** platform configuration (`core.json`, `video.json`, `data.json`, `interact.json`), pinouts (`.qsf`), and **TimeQuest** constraints (`.sdc`).
@@ -21,4 +22,4 @@
 2. **Intel Primitives:** Instantiate standard megafunctions (`altpll`, `altsyncram`, `dcfifo`) or use clean RTL inference recognized by `quartus_map`.
 3. **Zero Latches:** All combinational logic (`always_comb` in SV or combinational `process` in VHDL) must assign a default value to all outputs at the beginning of the block or cover all `if`/`case` branches.
 4. **openFPGA Interface:** Adhere to standard `core_top` ports (`bridge_*`, `video_rgb`, `video_hs`, `video_vs`, `video_de`, `video_skip`, `audio_l`, `audio_r`).
-5. **Validation:** Before finalizing a complex RTL change, provide the corresponding verification command (`verilator --lint-only` or `quartus_sh --flow compile`).
+5. **Validation:** Before finalizing a complex RTL change, provide and run the corresponding verification command (`verilator --lint-only` or `quartus_sh --flow compile`).

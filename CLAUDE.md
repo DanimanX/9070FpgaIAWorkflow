@@ -2,27 +2,29 @@
 
 Follow all rules in [`AGENTS.md`](./AGENTS.md).
 
-## Token-Saving Delegation via `codewhale`
+## Token-Saving Delegation via `qwen-rtl` & `codewhale`
 
 To save Claude tokens on this project:
-- **Delegate to `codewhale --profile strata`** (local **Strata** `Qwen3.8-Flash-Next Coder IQ1_M` on RX 9070 XT, 0 cloud tokens) for:
-  - Reading/analyzing large RTL files or logs
-  - Generating/maintaining testbenches (SystemVerilog / VHDL) and Verilator/Questa scripts
+- **Delegate to `qwen-rtl`** (local `qwen2.5-coder-14b-fpga` via Ollama Vulkan on RX 9070 XT, 0 cloud tokens, direct stdin/CLI without tool-calling overhead) for:
+  - Reading/auditing large RTL files or logs (`qwen-rtl --audit -f <file>`)
+  - Generating SystemVerilog/Verilog testbenches (`qwen-rtl --tb -f <file>`) or `cocotb` (`qwen-rtl --cocotb -f <file>`)
   - Auxiliary modules (counters, dividers, shift registers, LUTs, `cont1_key` mapping)
   - Quick fixes for Quartus warnings (`width mismatch`, unconnected signals, register inference)
-  - Build/packaging scripts (`Makefile`, `build.sh`, `.rbf`)
-- **Fallback to `codewhale`** (default `deepseek-flash`) if Strata (`http://127.0.0.1:8080/v1`) is not running.
-- **Keep in Claude** (high-value architectural reasoning):
-  - Complex RTL architecture, CDC (`dcfifo`), openFPGA platform JSONs, `.qsf`/`.sdc` constraints, and `.sta.rpt` timing closure.
+- **Use `codewhale`** (default `deepseek-flash`) when autonomous multi-file tool-calling (`read`/`edit`/`bash`) or >32K token context is needed.
+  - Note: Do **not** use `codewhale --profile qwen exec` for autonomous tool-calling (Ollama's Go parser does not unwrap Qwen2.5-Coder's fenced JSON tool calls); use `qwen-rtl` instead for local work.
+- **Keep in Claude** (high-value architectural reasoning & verification):
+  - Complex RTL architecture, CDC (`dcfifo`), openFPGA platform JSONs, `.qsf`/`.sdc` constraints, `.sta.rpt` timing closure, and running `verilator --lint-only` / `quartus_sh`.
 
 ### Quick Invocation
 ```bash
-# Check if Strata is ready
-curl -sf http://127.0.0.1:8080/v1/models >/dev/null 2>&1
+# Check / preload local VRAM
+qwen-local status
+qwen-local subir
 
-# Read-only analysis
-codewhale --profile strata exec --auto --sandbox read-only "<prompt>"
+# Local RTL audit & testbench generation
+qwen-rtl --audit -f rtl/mod.sv
+qwen-rtl --tb -f rtl/mod.sv > tb/tb_mod.sv
 
-# Workspace edit + verify git diff
-codewhale --profile strata exec --auto --sandbox workspace-write "<prompt>"
+# Remote autonomous edit (deepseek-flash)
+codewhale exec --auto --sandbox workspace-write "<prompt>"
 ```

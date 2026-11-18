@@ -1,6 +1,6 @@
-# 9070xtStrata — openFPGA + Intel Quartus Prime Workflow with Strata & Codewhale
+# 9070FpgaIAWorkflow — openFPGA + Intel Quartus Prime Workflow with Local Qwen 14B (Ollama Vulkan), Claude Code & Codewhale
 
-Base setup, project rules, and workflow documentation for developing **openFPGA** cores (Analogue Pocket / Intel Cyclone V) assisted by agents via **`codewhale`** using **Strata** (`Qwen3.8-Flash-Next Coder IQ1_M`) on an **AMD Radeon RX 9070 XT (16 GB VRAM, native ROCm/HIP engine)** running on **Arch Linux**, with optional cloud escalation for complex architecture design and timing closure.
+Base setup, project rules, and workflow documentation for developing **openFPGA** cores (Analogue Pocket / Intel Cyclone V) using **Claude Code** assisted by a local GPU minion (**`qwen-rtl`** running **`qwen2.5-coder-14b-fpga`** on **Ollama Vulkan** / **AMD Radeon RX 9070 XT 16 GB VRAM**) and **`codewhale`** (`deepseek-flash`) for autonomous multi-file edits and >32k context escalation on **Arch Linux**.
 
 ---
 
@@ -10,43 +10,44 @@ Base setup, project rules, and workflow documentation for developing **openFPGA*
 .
 ├── .gitignore                  # Quartus artifacts, simulation files (Verilator/Questa), and local configs
 ├── AGENTS.md                   # Model routing rules and strict Cyclone V synthesis guidelines
-├── CLAUDE.md                   # Claude Code rules for offloading heavy tasks to codewhale (token saving)
-├── README.md                   # Environment, lifecycle scripts, and workflow guide with Strata & Codewhale
+├── CLAUDE.md                   # Claude Code rules for offloading RTL reading & testbenches to qwen-rtl / codewhale
+├── README.md                   # Environment, lifecycle scripts, and workflow guide
 └── docs/
     └── ai-fpga-workflow.md     # Hybrid workflow diagrams and hardware resource allocation
 ```
 
 ---
 
-## Architecture: Strata (`local-fpga`) & Orchestration with `codewhale`
+## Architecture: Local `qwen-rtl` (Ollama Vulkan) + Claude Code + `codewhale`
 
-In this setup, **Strata** (`0.1.61` with native HIP engine `0.1.60` for `gfx1201`) runs **`Qwen3.8-Flash-Next Coder (IQ1_M)`** locally—keeping half the experts specialized in code, tool calling, and images (~32 GB RAM + 16 GB VRAM, leaving ~32 GB of system RAM free for Quartus Prime builds) and exposing an OpenAI-compatible API on `http://127.0.0.1:8080/v1` (128K context).
+In this setup, **Ollama Vulkan** runs **`qwen2.5-coder-14b-fpga`** (`hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF:Q5_K_M`, ~10.5 GB weights + ~5.5 GB KV cache for **32K context**) **100% inside the RX 9070 XT's 16 GB VRAM** with zero system RAM spill—leaving all ~62 GB of DDR5 RAM free for Quartus Prime and Verilator/Questa.
 
-**`codewhale`** acts as the **central orchestrator** using `--profile strata`: it reads [`AGENTS.md`](./AGENTS.md), routes local tasks to Strata and complex tasks to remote/cloud models, edits files, and runs Verilator/Questa and Quartus Prime.
+- **`qwen-rtl`** (`~/.local/bin/qwen-rtl`): Direct `stdin`/CLI minion for Claude Code and the developer (`http://127.0.0.1:11434/api/chat`). Reads RTL files, audits ports/FSMs/clocks, and generates SystemVerilog/Verilog/cocotb testbenches without tool-calling overhead.
+- **`codewhale`** (default `deepseek-flash`): Autonomous multi-file orchestrator when tool-calling (`read`/`edit`/`bash`) or >32K context is needed.
+- **Claude Code**: High-level architect that delegates repetitive RTL reading and testbench drafting to `qwen-rtl`, writes/integrates files, and verifies with `verilator --lint-only` / `quartus_sh`.
 
 ```mermaid
 flowchart LR
-    Dev(["Developer"]) -->|"strata-fpga / codewhale --profile strata"| CW["codewhale (Central Orchestrator)"]
-    Dev -->|"claude (/codewhale to save tokens)"| Claude["Claude Code"]
-    Claude -->|"Offloads heavy RTL/sim/logs"| CW
-    Ctrl["strata-local (start / stop / status / logs)"] -->|"Manages background daemon"| Strata
-    Strata["Strata HIP Engine (RX 9070 XT)<br/>Qwen3.8-Flash-Next Coder IQ1_M<br/>http://127.0.0.1:8080/v1 (128K ctx)"] <-->|"Local OpenAI API (--profile strata)"| CW
-    CW <-->|"Complex escalation"| Cloud["Remote / Cloud (deepseek-flash / Hydrogen Pro)"]
-    CW -->|"Lint / Sim / Synthesis"| Tools["Verilator / Questa / Quartus Prime"]
+    Dev(["Developer"]) -->|"claude"| Claude["Claude Code (Architect)"]
+    Claude -->|"qwen-rtl --audit / --tb / stdin"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (100% 16 GB VRAM, 32K ctx)"]
+    Claude -->|"Autonomous multi-file / >32K"| CW["codewhale (deepseek-flash)"]
+    Ctrl["qwen-local (subir / bajar / status)"] -->|"Manages VRAM lifecycle"| QwenRTL
+    Claude -->|"Lint / Sim / Synthesis"| Tools["Verilator / Questa / Quartus Prime"]
+    CW -->|"Lint / Sim / Synthesis"| Tools
 ```
 
-### Tasks Assigned to Strata (`--profile strata`)
+### Tasks Assigned to Local `qwen-rtl` (`qwen2.5-coder-14b-fpga`)
 
 As defined in [`AGENTS.md`](./AGENTS.md):
 
-- Generation and maintenance of **testbenches** (SystemVerilog / VHDL) and scripts for Verilator or Questa.
-- **Auxiliary modules:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
-- **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference).
-- Automation scripts (`Makefile`, `build.sh`, `.rbf` packaging).
+- **RTL reading & auditing:** summarizing ports, parameters, clock/reset domains, FSMs, and module dependencies (`qwen-rtl --audit -f ...`).
+- **Testbench generation:** SystemVerilog/Verilog (`qwen-rtl --tb -f ...`) and `cocotb` (`qwen-rtl --cocotb -f ...`).
+- **Auxiliary modules & boilerplate:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
+- **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference) and build scripts (`Makefile`, `build.sh`, `.rbf` packaging).
 
-### Escalation to Cloud / Remote
+### Escalation to Remote (`codewhale` `deepseek-flash` / Claude Code)
 
-Higher complexity tasks are escalated to cloud/remote models:
+Higher complexity tasks stay in Claude Code or escalate to `codewhale` (`deepseek-flash`):
 
 - **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
 - **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
@@ -55,25 +56,28 @@ Higher complexity tasks are escalated to cloud/remote models:
 
 ---
 
-## Local Lifecycle & Usage (`strata-local` & `strata-fpga`)
+## Local Lifecycle & Usage (`qwen-local` & `qwen-rtl`)
 
-Local service management is handled via `~/.local/bin/strata-local` and `~/.local/bin/strata-fpga` (`codewhale-strata`):
+Local VRAM and inference management is handled via `~/.local/bin/qwen-local` and `~/.local/bin/qwen-rtl`:
 
 ```bash
-# Start Strata in the background (port 8080, family: coder, model: iq1_m, context: 128k)
-strata-local start       # Aliases: subir, up
+# Preload qwen2.5-coder-14b-fpga into RX 9070 XT VRAM (keep_alive=-1)
+qwen-local subir         # Aliases: up, start
 
-# Stop Strata and free GPU VRAM
-strata-local stop        # Aliases: bajar, down
+# Unload from VRAM when done (frees ~16 GB VRAM)
+qwen-local bajar         # Aliases: down, stop
 
-# Check service status, endpoint, PID, and RX 9070 XT VRAM usage
-strata-local status      # Alias: estado
+# Check ollama service and loaded VRAM
+qwen-local status        # Alias: estado
 
-# Watch download / inference logs in real time
-strata-local logs
+# Audit an RTL module (ports, params, clock/reset, FSMs, risks)
+qwen-rtl --audit -f rtl/uart_tx.sv
 
-# Launch Codewhale directly against local Strata (--profile strata)
-strata-fpga
+# Generate a SystemVerilog/Verilog testbench
+qwen-rtl --tb -f rtl/uart_tx.sv > tb/tb_uart_tx.sv
+
+# Pipe RTL directly via stdin
+cat rtl/fifo.v | qwen-rtl "Verifica si hay riesgo de latch o reset asincrono"
 ```
 
 ---
@@ -82,9 +86,9 @@ strata-fpga
 
 | Component | Specification | Role |
 | :--- | :--- | :--- |
-| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference with **Strata** (`0.1.60-linux-x86_64-hip-rx9070`, `Qwen3.8-Flash-Next Coder IQ1_M`) |
+| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference via **Ollama Vulkan** (`qwen2.5-coder-14b-fpga`, 100% GPU, 32K ctx) |
 | **CPU** | Intel i7-14700KF / i9-14900K | RTL simulation (Verilator / Questa) and Quartus Place & Route |
-| **RAM** | 64 GB DDR5 | ~32 GB for `Coder IQ1_M` experts + ~32 GB free for Cyclone V Quartus compilation |
+| **RAM** | 64 GB DDR5 | 100% free for Cyclone V Quartus compilation and simulation (no GPU spill) |
 | **OS** | Arch Linux | Development, simulation, and synthesis environment |
 | **Target FPGA** | Intel Cyclone V (`5CEBA4F23C8` / `5CEFA7F27C8`) | Synthesis and `.rbf` bitstream generation for openFPGA |
 
