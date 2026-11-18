@@ -23,6 +23,7 @@ Base setup, project rules, and workflow documentation for developing **openFPGA*
 In this setup, **Ollama Vulkan** runs **`qwen2.5-coder-14b-fpga`** (`hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF:Q5_K_M`, ~10.5 GB weights + ~5.5 GB KV cache for **32K context**) **100% inside the RX 9070 XT's 16 GB VRAM** with zero system RAM spill—leaving all ~62 GB of DDR5 RAM free for Quartus Prime and Verilator/Questa.
 
 - **`qwen-rtl`** (`~/.local/bin/qwen-rtl`): Direct `stdin`/CLI minion for Claude Code and the developer (`http://127.0.0.1:11434/api/chat`). Used **only** for structural/inventory audits, boilerplate, and testbench skeletons without tool-calling overhead.
+- **`qwen-vl`** (`~/.local/bin/qwen-vl`): Local vision minion (`qwen2.5vl:7b`, ~6 GB VRAM) for OCR of Quartus/Verilator screenshots, pinout tables, block diagrams, and UI captures. Automatically unloads `qwen2.5-coder-14b-fpga` before running and expires after `60s` (`--restore` reloads the 14B coder).
 - **`codewhale`** (default `deepseek-flash`): Autonomous multi-file orchestrator when timing/protocol reasoning, testbench checking logic, tool-calling (`read`/`edit`/`bash`), or >32K context is needed.
 - **Claude Code**: Lead architect that delegates structural RTL reading and testbench skeletons to `qwen-rtl`, escalates timing/cycle-level or multi-file work to `codewhale`, makes final diagnoses, and verifies against code and simulations (`verilator --lint-only`, `iverilog`, `quartus_sh`).
 
