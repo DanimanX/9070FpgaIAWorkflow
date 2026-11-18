@@ -2,14 +2,16 @@
 
 ## 1. Model Routing (`qwen-rtl` & `codewhale`)
 
-### Use local `qwen-rtl` (`qwen2.5-coder-14b-fpga` via Ollama Vulkan on RX 9070 XT, 100% GPU):
-- **RTL reading & auditing:** summarizing ports, parameters, clock/reset domains, FSMs, and dependencies (`qwen-rtl --audit -f <file>`).
-- **Testbench generation:** SystemVerilog/Verilog (`qwen-rtl --tb -f <file>`) and `cocotb` (`qwen-rtl --cocotb -f <file>`).
+### Use local `qwen-rtl` (`qwen2.5-coder-14b-fpga` via Ollama Vulkan on RX 9070 XT, 100% GPU) ONLY for structural / inventory work:
+- **RTL reading & structural auditing:** summarizing ports, parameters, clock/reset domains, FSM state lists, dependencies, and lint-style checks (latches, width mismatches) (`qwen-rtl --audit -f <file>`).
+- **Testbench skeletons & boilerplate:** SystemVerilog/Verilog (`qwen-rtl --tb -f <file>`) and `cocotb` (`qwen-rtl --cocotb -f <file>`), where Claude or `codewhale` (`deepseek-flash`) fills in timing-dependent checks.
 - **Auxiliary modules:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
 - **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference) and automation scripts (`Makefile`, `build.sh`, `.rbf` packaging).
+- **Strict Boundary:** **Do NOT use Qwen for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols** (measured 2026-11-17 on `psk_sram.sv`: structural inventory was accurate, but the cycle trace ignored the one-clock register delay and invented `OE#`/bus contention).
 
 ### Escalate to Remote (`codewhale` `deepseek-flash` / Claude Code):
-- Autonomous multi-file edits (`codewhale exec --auto --sandbox workspace-write`) or contexts exceeding 32K tokens.
+- **Timing & protocol reasoning:** cycle-by-cycle analysis of registered logic, protocol/waveform reasoning, and testbench checking logic.
+- Autonomous read-only audits (`codewhale exec --auto --sandbox read-only`), multi-file edits (`codewhale exec --auto --sandbox workspace-write`), or contexts exceeding 32K tokens.
 - **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
 - **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
 - **openFPGA** platform configuration (`core.json`, `video.json`, `data.json`, `interact.json`), pinouts (`.qsf`), and **TimeQuest** constraints (`.sdc`).

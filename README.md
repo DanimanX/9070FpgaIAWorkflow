@@ -22,15 +22,15 @@ Base setup, project rules, and workflow documentation for developing **openFPGA*
 
 In this setup, **Ollama Vulkan** runs **`qwen2.5-coder-14b-fpga`** (`hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF:Q5_K_M`, ~10.5 GB weights + ~5.5 GB KV cache for **32K context**) **100% inside the RX 9070 XT's 16 GB VRAM** with zero system RAM spill—leaving all ~62 GB of DDR5 RAM free for Quartus Prime and Verilator/Questa.
 
-- **`qwen-rtl`** (`~/.local/bin/qwen-rtl`): Direct `stdin`/CLI minion for Claude Code and the developer (`http://127.0.0.1:11434/api/chat`). Reads RTL files, audits ports/FSMs/clocks, and generates SystemVerilog/Verilog/cocotb testbenches without tool-calling overhead.
-- **`codewhale`** (default `deepseek-flash`): Autonomous multi-file orchestrator when tool-calling (`read`/`edit`/`bash`) or >32K context is needed.
-- **Claude Code**: High-level architect that delegates repetitive RTL reading and testbench drafting to `qwen-rtl`, writes/integrates files, and verifies with `verilator --lint-only` / `quartus_sh`.
+- **`qwen-rtl`** (`~/.local/bin/qwen-rtl`): Direct `stdin`/CLI minion for Claude Code and the developer (`http://127.0.0.1:11434/api/chat`). Used **only** for structural/inventory audits, boilerplate, and testbench skeletons without tool-calling overhead.
+- **`codewhale`** (default `deepseek-flash`): Autonomous multi-file orchestrator when timing/protocol reasoning, testbench checking logic, tool-calling (`read`/`edit`/`bash`), or >32K context is needed.
+- **Claude Code**: Lead architect that delegates structural RTL reading and testbench skeletons to `qwen-rtl`, escalates timing/cycle-level or multi-file work to `codewhale`, makes final diagnoses, and verifies against code and simulations (`verilator --lint-only`, `iverilog`, `quartus_sh`).
 
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"claude"| Claude["Claude Code (Architect)"]
-    Claude -->|"qwen-rtl --audit / --tb / stdin"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (100% 16 GB VRAM, 32K ctx)"]
-    Claude -->|"Autonomous multi-file / >32K"| CW["codewhale (deepseek-flash)"]
+    Claude -->|"qwen-rtl --audit / --tb / -f (structural only)"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (100% 16 GB VRAM, 32K ctx)"]
+    Claude -->|"Timing / protocols / multi-file / >32K"| CW["codewhale (deepseek-flash)"]
     Ctrl["qwen-local (subir / bajar / status)"] -->|"Manages VRAM lifecycle"| QwenRTL
     Claude -->|"Lint / Sim / Synthesis"| Tools["Verilator / Questa / Quartus Prime"]
     CW -->|"Lint / Sim / Synthesis"| Tools
@@ -38,17 +38,22 @@ flowchart LR
 
 ### Tasks Assigned to Local `qwen-rtl` (`qwen2.5-coder-14b-fpga`)
 
-As defined in [`AGENTS.md`](./AGENTS.md):
+As defined in [`AGENTS.md`](./AGENTS.md) and [`CLAUDE.md`](./CLAUDE.md), `qwen-rtl` is restricted to **structural / inventory work**:
 
-- **RTL reading & auditing:** summarizing ports, parameters, clock/reset domains, FSMs, and module dependencies (`qwen-rtl --audit -f ...`).
-- **Testbench generation:** SystemVerilog/Verilog (`qwen-rtl --tb -f ...`) and `cocotb` (`qwen-rtl --cocotb -f ...`).
+- **RTL reading & structural auditing:** summarizing ports, parameters, clock/reset domains, FSM state lists, module dependencies, and lint-style checks (`qwen-rtl --audit -f ...`).
+- **Testbench skeletons & boilerplate:** SystemVerilog/Verilog (`qwen-rtl --tb -f ...`) and `cocotb` (`qwen-rtl --cocotb -f ...`); Claude or `codewhale` fills in timing-dependent checks.
 - **Auxiliary modules & boilerplate:** counters, frequency dividers, shift registers, LUT tables (`.mif` / `.hex`), and controller mapping (`cont1_key`).
 - **Quick fixes for Quartus warnings** (`width mismatch`, unconnected signals, register inference) and build scripts (`Makefile`, `build.sh`, `.rbf` packaging).
 
+> [!IMPORTANT]
+> **Timing & Protocol Boundary:** Do **not** use Qwen for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols. Measured 2026-11-17 on `psk_sram.sv`: Qwen's structural inventory was accurate, but its cycle trace was wrong (it ignored the one-clock register delay and invented `OE#`/bus contention).
+
 ### Escalation to Remote (`codewhale` `deepseek-flash` / Claude Code)
 
-Higher complexity tasks stay in Claude Code or escalate to `codewhale` (`deepseek-flash`):
+Higher complexity tasks and all timing-sensitive delegable work stay in Claude Code or escalate to `codewhale` (`deepseek-flash`):
 
+- **Timing & protocol reasoning:** cycle-by-cycle analysis of registered logic, protocol/waveform reasoning, and testbench checking logic.
+- **Autonomous audits & multi-file edits:** `codewhale exec --auto --sandbox read-only` / `--sandbox workspace-write` (and `--resume <SESSION_ID>`). Note: do **not** use `codewhale --profile qwen exec` (Ollama's Go template parser does not unwrap Qwen2.5-Coder's fenced JSON tool calls).
 - **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
 - **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
 - **openFPGA** platform configuration (`core.json`, `video.json`, `data.json`, `interact.json`), pinouts (`.qsf`), and **TimeQuest** constraints (`.sdc`).
@@ -70,15 +75,32 @@ qwen-local bajar         # Aliases: down, stop
 # Check ollama service and loaded VRAM
 qwen-local status        # Alias: estado
 
-# Audit an RTL module (ports, params, clock/reset, FSMs, risks)
+# Audit an RTL module (ports, params, clock/reset, FSM states, risks)
 qwen-rtl --audit -f rtl/uart_tx.sv
 
-# Generate a SystemVerilog/Verilog testbench
+# Generate a SystemVerilog/Verilog testbench skeleton
 qwen-rtl --tb -f rtl/uart_tx.sv > tb/tb_uart_tx.sv
 
-# Pipe RTL directly via stdin
-cat rtl/fifo.v | qwen-rtl "Verifica si hay riesgo de latch o reset asincrono"
+# Focused structural question or stdin pipe
+qwen-rtl -f rtl/uart_tx.sv "List all FSM states and reset conditions"
+cat rtl/fifo.v | qwen-rtl "Check for latch risks or async resets"
 ```
+
+### Remote Escalation (`codewhale`)
+
+```bash
+# Read-only audit / timing & protocol analysis
+codewhale exec --auto --sandbox read-only "<focused prompt with file paths/line ranges>"
+
+# Autonomous workspace edits with verification criteria
+codewhale exec --auto --sandbox workspace-write "<focused prompt with verification criteria>"
+
+# Resume a previous session
+codewhale exec --resume <SESSION_ID> --auto --sandbox workspace-write "<follow-up>"
+```
+
+> [!WARNING]
+> **Operational Note:** Do **not** run `pkill -f 'codewhale ...'` from Bash — the pattern matches the shell itself and terminates it (exit 144). Always kill by PID.
 
 ---
 

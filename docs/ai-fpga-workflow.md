@@ -1,12 +1,15 @@
 # Hybrid openFPGA + Intel Quartus Prime Development Workflow
 
-Agent-assisted development architecture where **Claude Code** acts as the lead architect, offloading manual RTL reading and testbench generation to **`qwen-rtl`** (**`qwen2.5-coder-14b-fpga`** running 100% on **RX 9070 XT 16 GB VRAM** via **Ollama Vulkan**), escalating autonomous multi-file tasks (>32K context) to **`codewhale`** (`deepseek-flash`), and running local toolchains (**Verilator / Questa / Intel Quartus Prime**) on **i7-14700KF + 64 GB DDR5 RAM**.
+Agent-assisted development architecture where **Claude Code** acts as the lead architect, offloading structural RTL reading and testbench skeletons to **`qwen-rtl`** (**`qwen2.5-coder-14b-fpga`** running 100% on **RX 9070 XT 16 GB VRAM** via **Ollama Vulkan**), escalating timing/protocol reasoning and autonomous multi-file tasks (>32K context) to **`codewhale`** (`deepseek-flash`), and running local toolchains (**Verilator / Icarus Verilog / Questa / Intel Quartus Prime**) on **i7-14700KF + 64 GB DDR5 RAM**.
 
 ---
 
 ## 1. Integration Architecture (`Claude Code + qwen-rtl + codewhale`)
 
-**Ollama Vulkan** serves **`qwen2.5-coder-14b-fpga`** (`Q5_K_M`, 32K context) 100% in VRAM. **`qwen-rtl`** sends RTL files/stdin directly to Ollama's `/api/chat` endpoint and returns clean summaries or testbench code to Claude Code, avoiding tool-calling overhead while keeping all ~62 GB of system RAM free for Quartus Prime.
+**Ollama Vulkan** serves **`qwen2.5-coder-14b-fpga`** (`Q5_K_M`, 32K context) 100% in VRAM. **`qwen-rtl`** sends RTL files/stdin directly to Ollama's `/api/chat` endpoint and returns structural summaries or testbench skeletons to Claude Code, avoiding tool-calling overhead while keeping all ~62 GB of system RAM free for Quartus Prime.
+
+> [!IMPORTANT]
+> **Structural-Only Boundary for `qwen-rtl`:** Qwen is used **only** for structural/inventory work, boilerplate, and testbench skeletons. It must **not** be used for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols (measured 2026-11-17 on `psk_sram.sv`: structural inventory was accurate, but its cycle trace ignored the one-clock register delay and invented `OE#`/bus contention). All timing/protocol reasoning routes to `codewhale` (`deepseek-flash`) or Claude Code.
 
 ```mermaid
 flowchart LR
@@ -49,16 +52,17 @@ sequenceDiagram
     Dev->>Claude: Requests RTL change, testbench, or build
     Claude->>Claude: Checks AGENTS.md and routes task
 
-    alt Local Task (RTL Audit / Testbench / Auxiliary module / Warnings)
+    alt Local Structural Task (RTL Inventory / Testbench Skeleton / Auxiliary / Warnings)
         Claude->>Qwen: Runs qwen-rtl --audit / --tb -f rtl/mod.sv
-        Qwen-->>Claude: Returns port/FSM summary or SV/cocotb testbench
-        Claude->>Claude: Reviews & writes files to workspace
-    else Complex / Multi-file Task (>32K ctx / Architecture / CDC / .sdc)
-        Claude->>CW: Escalates via codewhale exec (or solves directly)
-        CW-->>Claude: Returns architecture, constraints, or patch
+        Qwen-->>Claude: Returns port/FSM inventory or SV/cocotb skeleton
+        Claude->>Claude: Reviews & fills timing-dependent checks (or escalates to CW)
+    else Timing / Protocol / Multi-file Task (Cycle trace / >32K ctx / Architecture / CDC / .sdc)
+        Claude->>CW: Escalates via codewhale exec --sandbox read-only / workspace-write
+        CW-->>Claude: Returns timing analysis, checking logic, constraints, or patch
+        Claude->>Claude: Verifies DeepSeek output against code & simulations
     end
 
-    Claude->>Tools: Runs verilator --lint-only / simulation
+    Claude->>Tools: Inspects git diff & runs verilator --lint-only / iverilog / simulation
 
     alt Logic or syntax failure
         Tools-->>Claude: Reports errors
@@ -86,10 +90,10 @@ flowchart TD
     Dev(["Developer / Prompt in Claude Code"]) --> Claude{"Claude Code (AGENTS.md)"}
 
     %% Cloud / Architect Branch
-    Claude -->|"RTL Architecture / FSM / CDC / Timing Closure .sta.rpt / openFPGA JSON / .sdc"| Arch["Claude Code + codewhale (deepseek-flash) - Long context & deep reasoning"]
+    Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc"| Arch["Claude Code + codewhale (deepseek-flash) - Timing, protocols & >32K ctx"]
 
     %% Local Branch
-    Claude -->|"RTL Audit / SV-VHDL-cocotb Testbenches / Auxiliary modules / Warning cleanup"| Local["qwen-rtl (RX 9070 XT - 16 GB VRAM) - qwen2.5-coder-14b-fpga (Ollama Vulkan)"]
+    Claude -->|"Structural Inventory / TB Skeletons / Auxiliary modules / Warning cleanup"| Local["qwen-rtl (RX 9070 XT - 16 GB VRAM) - qwen2.5-coder-14b-fpga (Ollama Vulkan)"]
 
     %% Convergence in code
     Arch --> RTL["Source Code & Configuration: rtl/*.sv | rtl/*.vhd | core.json | .sdc | .qsf"]
