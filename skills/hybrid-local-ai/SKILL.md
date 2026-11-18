@@ -50,7 +50,7 @@ Claude es el arquitecto: decide, revisa y verifica. Los modelos locales hacen el
 
 - Velocidad: ~80 tok/s de salida, ~3,500 tok/s de lectura de prompt. **`ask` usa `reasoning_effort=none` por defecto**: con razonamiento el modelo gastaba ~3,000 tokens ocultos (47 s → 5.6 s al quitarlo). `--think` solo cuando la tarea lo amerite.
 - **RTL (`--rtl`, `sound_i2s.sv`):** inventario correcto (puertos, parámetros, relojes, instancia `sync_fifo`, señal sin uso `audgen_nextsamp`). Fiable para estructura.
-- **IaC (`--iac`, S3 en AWS v5):** recursos separados correctos (versioning, SSE, public access block, lifecycle). Le faltaron el bloque `provider` con `default_tags` y el `filter {}` en lifecycle: revisar y pasar `terraform validate`.
+- **IaC (`--iac`, S3 en AWS v5):** recursos separados correctos (versioning, SSE, public access block, lifecycle). `terraform fmt -check` y `terraform validate` (v1.15.9) pasaron sin cambios. Le faltó el bloque `provider` con `default_tags`: revisar que cumpla todo lo pedido.
 - **Rust/nih-plug (`--rust`):** **sin contexto inventa la API** (PluginSettings, AudioBuffers, CLAP_ID…), incluso con `--think`. Con un archivo real de nih-plug pasado con `-f` acierta la estructura, pero aún inventó 2 llamadas (`formatters::s2v_f32_rounded`, `buffer.as_mut()`) y la ley de paneo salió mal (con pan=0 el canal derecho quedaba mudo). Regla: pasar siempre con `-f` un archivo real del proyecto o de `~/.cargo/git/checkouts/nih-plug-*/*/plugins/examples/`, compilar con `cargo check` y la matemática DSP la revisa Claude.
 
 ## 4. Invocación
