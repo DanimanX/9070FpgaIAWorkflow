@@ -12,10 +12,10 @@ To save Claude tokens on this project, offload heavy reading, structural invento
   - Focused questions via stdin or files: `qwen-rtl -f <file> "<focused question>"`
   - Manage VRAM lifecycle: `qwen-local status`, `qwen-local subir`, `qwen-local bajar` (free VRAM after batch work).
   - **Do NOT use Qwen for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols.** (Measured 2026-11-17 on `psk_sram.sv`: structural inventory was accurate, but the cycle trace was wrong — it ignored the one-clock register delay and invented `OE#`/bus contention.)
-- **Use `qwen-vl` for local image/screenshot analysis** (`qwen2.5vl:7b` on Ollama Vulkan, ~6 GB VRAM, 0 cloud tokens):
-  - OCR of Quartus/Verilator error screenshots, pinout tables, block diagrams/schematics, and UI captures: `qwen-vl --ocr -f img.png`, `qwen-vl --diagram -f img.png`, `qwen-vl --ui -f img.png`.
+- **Use `qwen-vl` for local image/screenshot analysis** (`qwen2.5vl:7b` on Ollama Vulkan, ~6.2 GB VRAM with `num_ctx=16384`, 0 cloud tokens):
+  - General UI captures, block diagrams/schematics, and crisp normal-font text/logs: `qwen-vl --ocr -f img.png`, `qwen-vl --diagram -f img.png`, `qwen-vl --ui -f img.png`.
   - Automatically unloads `qwen2.5-coder-14b-fpga` before running and uses `keep_alive=60s` (pass `--restore` to reload the 14B coder afterward).
-  - **Do NOT use `qwen-vl` for cycle-by-cycle waveform counting** in GTKWave/SignalTap captures; export `.vcd`/`.csv` or inspect directly in Claude when exact clock-edge alignment matters.
+  - **Do NOT use `qwen-vl` for exact hex/register OCR in pixelated console/Analogue Pocket fonts or cycle-by-cycle waveform counting** in GTKWave/SignalTap captures. (Measured 2026-11-17 on `IMG_20261115_172933.jpg`: `qwen2.5vl:7b` extracted all 15 lines, but misread similar pixelated hex glyphs such as `8`/`0`, `D`/`0`, `V`/`U`, `HDD`/`ABBT`, `PC`/`PLX`.) Inspect those directly in Claude or export `.vcd`/`.csv`.
 - **Use `codewhale` (default profile `deepseek-flash`)** for everything delegable that Qwen must not do:
   - Timing / cycle-level analysis, protocol and waveform reasoning, and testbench checking logic.
   - Autonomous multi-file tool-calling (`read`/`edit`/`bash`) and context exceeding ~32K tokens.
