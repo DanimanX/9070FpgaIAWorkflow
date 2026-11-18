@@ -34,12 +34,18 @@ In this setup, **Ollama Vulkan** runs **`qwen2.5-coder-14b-fpga`** (`hf.co/barto
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"claude"| Claude["Claude Code (Architect)"]
-    Claude -->|"qwen-rtl --audit / --tb / -f (structural only)"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (16 GB VRAM, 32K ctx)"]
+    Claude -->|"strata-local ask --sum / --rtl / --iac / --rust / --review"| Strata["Strata (HIP)<br/>Qwen3.6-35B-A3B UD-Q4_K_XL<br/>VRAM + ~12-16 GB RAM, 32K ctx, ~80 tok/s"]
+    Claude -->|"qwen-rtl --audit / --tb / -f (structural, during Quartus)"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (16 GB VRAM, 32K ctx)"]
     Claude -->|"qwen-vl --ocr / --diagram / --ui (auto-swaps VRAM)"| QwenVL["qwen-vl (CLI)<br/>qwen2.5vl:7b<br/>Ollama Vulkan (~5.4 GB VRAM, 60s TTL)"]
     Claude -->|"Timing / protocols / multi-file / >32K"| CW["codewhale (deepseek-flash)"]
+    CW -.->|"--profile strata --max-turns 8 (one file)"| Strata
+    SCtrl["strata-local (start / stop / status)"] -->|"Guards: no Quartus / memtester, >=24 GB RAM"| Strata
+    Strata -.->|"Exclusive VRAM: unloads Ollama"| QwenRTL
     Ctrl["qwen-local (subir / bajar / status)"] -->|"Manages VRAM lifecycle"| QwenRTL
     QwenVL -.->|"Unloads 14B coder before run"| QwenRTL
-    Claude -->|"Lint / Sim / Synthesis"| Tools["Verilator / Questa / Quartus Prime"]
+    Claude -->|"FPGA: lint / sim / synthesis"| Tools["Verilator / Questa / Quartus Prime"]
+    Claude -->|"IaC: fmt / validate"| IaC["terraform / tofu / helm lint"]
+    Claude -->|"Rust VST: check / clippy / bundle"| Rust["cargo + nih-plug xtask"]
     CW -->|"Lint / Sim / Synthesis"| Tools
 ```
 

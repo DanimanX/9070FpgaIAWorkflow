@@ -51,35 +51,42 @@ flowchart LR
 sequenceDiagram
     actor Dev as Developer
     participant Claude as Claude Code (Architect)
+    participant Strata as Strata (Qwen3.6-35B-A3B)
     participant Qwen as qwen-rtl (RX 9070 XT, 14B)
     participant QwenVL as qwen-vl (RX 9070 XT, 7B VL)
     participant CW as codewhale (deepseek-flash)
-    participant Tools as Verilator / Quartus (i7-14700KF)
+    participant Tools as Verilator / Quartus / terraform / cargo
 
-    Dev->>Claude: Requests RTL change, testbench, image analysis, or build
-    Claude->>Claude: Checks AGENTS.md and routes task
+    Dev->>Claude: Requests RTL, IaC or Rust VST change, image analysis, or build
+    Claude->>Claude: Checks AGENTS.md + skill hybrid-local-ai, routes task
+    Claude->>Strata: strata-local status
 
-    alt Local Structural Task (RTL Inventory / Testbench Skeleton / Auxiliary / Warnings)
+    alt Bounded task and Strata ACTIVE (summary / RTL inventory / IaC / Rust with real -f context / review)
+        Claude->>Strata: strata-local ask --sum / --rtl / --iac / --rust / --review (reasoning off)
+        Strata-->>Claude: Draft (~5-10 s)
+        Claude->>Claude: Reviews draft (Rust: API + DSP math checked by Claude)
+    else Structural RTL while Quartus compiles (Strata stopped)
         Claude->>Qwen: Runs qwen-rtl --audit / --tb -f rtl/mod.sv
         Qwen-->>Claude: Returns port/FSM inventory or SV/cocotb skeleton
-        Claude->>Claude: Reviews & fills timing-dependent checks (or escalates to CW)
-    else Local Image / Screenshot Task (OCR / Diagrams / UI, non-waveform timing)
+    else Image / Screenshot (OCR / Diagrams / UI, non-waveform timing)
+        Claude->>Strata: strata-local stop (exclusive VRAM)
         Claude->>QwenVL: Runs qwen-vl --ocr / --diagram / --ui -f img.png
-        QwenVL->>Qwen: Auto-unloads 14B coder from VRAM
         QwenVL-->>Claude: Returns extracted text / diagram / UI summary (60s TTL)
-    else Timing / Protocol / Multi-file Task (Cycle trace / >32K ctx / Architecture / CDC / .sdc)
+    else Timing / Protocol / Multi-file / >32K ctx / CDC / .sdc
         Claude->>CW: Escalates via codewhale exec --sandbox read-only / workspace-write
-        CW-->>Claude: Returns timing analysis, checking logic, constraints, or patch
+        CW-->>Claude: Returns analysis, checking logic, constraints, or patch
         Claude->>Claude: Verifies DeepSeek output against code & simulations
     end
 
-    Claude->>Tools: Inspects git diff & runs verilator --lint-only / iverilog / simulation
+    Claude->>Tools: Inspects git diff & runs domain checks
+    Note over Tools: FPGA: verilator / iverilog<br/>IaC: terraform fmt + validate<br/>Rust: cargo check / clippy / test
 
-    alt Logic or syntax failure
+    alt Failure
         Tools-->>Claude: Reports errors
-        Claude->>Qwen: Requests quick fix via stdin/CLI
-        Qwen-->>Claude: Corrected snippet
-    else Simulation OK
+        Claude->>Strata: Requests quick fix with the error as context
+        Strata-->>Claude: Corrected snippet (wrong twice -> escalate to CW or Claude)
+    else OK (FPGA)
+        Claude->>Strata: strata-local stop (free RAM/VRAM)
         Claude->>Tools: Runs quartus_sh --flow compile
         Tools-->>Claude: Returns .fit.rpt, .sta.rpt, and warnings
         opt Minor warnings
@@ -88,7 +95,7 @@ sequenceDiagram
         opt Timing Violation (Setup/Hold) or Fitter error
             Claude->>Claude: Analyzes .sta.rpt / .fit.rpt for Timing Closure
         end
-        Claude-->>Dev: Delivers validated core.rbf and summary of results
+        Claude-->>Dev: Delivers validated core.rbf / plan / plugin bundle and summary
     end
 ```
 
@@ -98,31 +105,36 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Dev(["Developer / Prompt in Claude Code"]) --> Claude{"Claude Code (AGENTS.md)"}
+    Dev(["Developer / Prompt in Claude Code"]) --> Claude{"Claude Code (AGENTS.md + hybrid-local-ai)"}
 
-    %% Cloud / Architect Branch
-    Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc"| Arch["Claude Code + codewhale (deepseek-flash) - Timing, protocols & >32K ctx"]
-
-    %% Local Branches
-    Claude -->|"Structural Inventory / TB Skeletons / Auxiliary modules / Warning cleanup"| Local["qwen-rtl (RX 9070 XT - 16 GB VRAM) - qwen2.5-coder-14b-fpga (Ollama Vulkan)"]
-    Claude -->|"Images / Screenshots / OCR / Block Diagrams (non-waveform timing)"| LocalVL["qwen-vl (RX 9070 XT - ~5.4 GB, auto-swap) - qwen2.5vl:7b (60s TTL)"]
+    Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc / >32K"| Arch["Claude Code + codewhale (deepseek-flash)"]
+    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["Strata - Qwen3.6-35B-A3B UD-Q4_K_XL (VRAM + RAM, ~80 tok/s)"]
+    Claude -->|"Structural RTL while Quartus compiles"| Local["qwen-rtl - qwen2.5-coder-14b-fpga (Ollama Vulkan, VRAM only)"]
+    Claude -->|"Images / Screenshots / OCR / Block Diagrams"| LocalVL["qwen-vl - qwen2.5vl:7b (60s TTL)"]
     LocalVL --> Claude
 
-    %% Convergence in code
-    Arch --> RTL["Source Code & Configuration: rtl/*.sv | rtl/*.vhd | core.json | .sdc | .qsf"]
-    Local --> RTL
+    Arch --> Code["Source: rtl/*.sv | core.json | .sdc | .qsf | *.tf | Helm | src/*.rs"]
+    Strata --> Code
+    Local --> Code
 
-    %% Verification & Synthesis Flow
-    RTL --> Sim{"Unit Simulation?"}
-    Sim -->|"Yes"| Verilator["Simulator (Verilator / Questa) on i7-14700KF"]
-    Verilator -->|"Logic failure"| Local
-    Verilator -->|"OK"| Quartus
+    Code --> Domain{"Domain?"}
+    Domain -->|"IaC"| TF["terraform fmt -check + validate / tflint / helm lint"]
+    Domain -->|"Rust VST"| Cargo["cargo check / clippy -D warnings / test / xtask bundle"]
+    TF -->|"Fails"| Strata
+    Cargo -->|"Fails (API / DSP)"| Arch
+    TF -->|"OK"| Done(["Verified result to Developer"])
+    Cargo -->|"OK"| Done
 
-    Sim -->|"No / Direct to HW"| Quartus["Intel Quartus Prime (quartus_sh) - Synthesis, Fitter & TimeQuest (64 GB RAM)"]
+    Domain -->|"FPGA"| Sim{"Unit Simulation?"}
+    Sim -->|"Yes"| Verilator["Verilator / Questa on i7-14700KF"]
+    Verilator -->|"Logic failure"| Strata
+    Verilator -->|"OK"| Stop["strata-local stop (free RAM + VRAM)"]
+    Sim -->|"No / Direct to HW"| Stop
+    Stop --> Quartus["Intel Quartus Prime (quartus_sh) - Synthesis, Fitter & TimeQuest"]
 
     Quartus --> Check{"Compilation Result?"}
     Check -->|"Minor warnings / Bit-width"| Local
-    Check -->|"Setup/Hold violation or Cyclone V Fitter error"| Arch
+    Check -->|"Setup/Hold violation or Fitter error"| Arch
     Check -->|"Timing Clean & Bitstream OK"| Bitstream(["core.rbf ready for Analogue Pocket / openFPGA"])
 ```
 
@@ -132,7 +144,7 @@ flowchart TD
 
 | Component | Allocated Resource | Role in Pipeline |
 | :--- | :--- | :--- |
-| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM (100% GPU) | Local inference with **Ollama Vulkan** (`qwen2.5-coder-14b-fpga` `Q5_K_M`, 32K ctx) via `qwen-rtl` |
+| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM, exclusive | **Strata** (Qwen3.6-35B-A3B, 81/256 experts per layer in VRAM) via `strata-local`, **or** Ollama Vulkan (`qwen2.5-coder-14b-fpga`, `qwen2.5vl:7b`) via `qwen-rtl` / `qwen-vl` |
 | **Intel i7-14700KF (20 cores)** | CPU Compute | RTL simulation (Verilator/Questa) and Quartus Place & Route |
-| **64 GB DDR5 RAM** | 100% available for CPU | Cyclone V compilation without swapping (no model spill from GPU) |
+| **64 GB DDR5 RAM** | ~12-16 GB to Strata while running | Remaining Strata experts; stop Strata before Quartus so compilation gets the full RAM |
 | **Claude Code + `codewhale`** | Remote API | Lead architecture, CDC, `.sdc`, `.sta.rpt` / `.fit.rpt` analysis, and multi-file edits (`deepseek-flash`) |
