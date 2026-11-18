@@ -8,6 +8,7 @@ Claude is the lead architect: it decides, reviews and verifies. Bounded work goe
 
 - **Strata (`strata-local ask`) — default local minion** (Qwen3.6-35B-A3B UD-Q4_K_XL, MoE 3B active, 32K ctx, `http://127.0.0.1:8080/v1`, full RX 9070 XT VRAM + ~12–16 GB RAM):
   - Summaries of files/logs (`--sum`), structural RTL inventory (`--rtl`), Terraform/Helm/Ansible/CI boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`), commit messages and docs.
+  - Measured 2026-11-18: ~80 tok/s; `ask` defaults to `reasoning_effort=none` (47 s → 5.6 s), `--think` to opt in. RTL inventory reliable; IaC good but check provider/default_tags; **Rust: always pass a real nih-plug file with `-f`** (without it the API is invented) and verify with `cargo check` — DSP math stays in Claude.
   - Lifecycle: `strata-local status | start | stop | logs | plan`. `start` unloads Ollama and refuses while Quartus or `memtester` run or with <24 GB RAM available. **Stop Strata before Quartus compiles.**
   - As an agent: `codewhale --profile strata exec --max-turns 8 ...`, one file / one question only (it wanders on open research, measured 2026-11-16).
 - **`qwen-rtl` (Ollama Vulkan, `qwen2.5-coder-14b-fpga`, VRAM only)** — structural RTL inventory and TB skeletons when Strata is down, especially **during Quartus compiles** (it uses no system RAM): `qwen-rtl --audit|--tb|--cocotb -f <file>`; VRAM with `qwen-local status|subir|bajar`.

@@ -6,7 +6,8 @@
 #   strata-local status            Estado del servidor, RAM libre y VRAM
 #   strata-local logs              Últimas líneas del log del motor
 #   strata-local plan              Muestra el plan de strata launch (no descarga ni cambia nada)
-#   strata-local ask [--rtl|--iac|--rust|--review|--sum] [-f FILE]... ["pregunta"]   (stdin también)
+#   strata-local ask [--rtl|--iac|--rust|--review|--sum] [--think] [-f FILE]... ["pregunta"]   (stdin también)
+#                  Sin --think: reasoning_effort=none (~6x más rápido). --think: medium.
 #
 # Reglas (ver ~/.claude/skills/hybrid-local-ai/SKILL.md):
 #  - No arranca si memtester o Quartus están corriendo, ni con menos de STRATA_MIN_FREE_GB de RAM disponible.
@@ -90,7 +91,7 @@ case "${1:-status}" in
   ask)
     shift
     up || die "Strata no está activo (strata-local start)."
-    role="general"; files=(); q=""
+    role="general"; files=(); q=""; effort="${STRATA_EFFORT:-none}"
     while [ $# -gt 0 ]; do
       case "$1" in
         --rtl|--audit) role="rtl" ;;
@@ -98,13 +99,14 @@ case "${1:-status}" in
         --rust) role="rust" ;;
         --review) role="review" ;;
         --sum) role="sum" ;;
+        --think) effort="medium" ;;
         -f) shift; [ -f "$1" ] || die "no existe: $1"; files+=("$1") ;;
         *) q="${q:+$q }$1" ;;
       esac
       shift
     done
-    STDIN=""; [ -t 0 ] || STDIN="$(cat)"
-    ROLE="$role" Q="$q" STDIN="$STDIN" URL="$URL" MAX_TOKENS="$MAX_TOKENS" python3 -I - "${files[@]}" <<'PY'
+    STDIN=""; if [ -p /dev/stdin ] || [ -f /dev/stdin ]; then STDIN="$(cat)"; fi
+    EFFORT="$effort" ROLE="$role" Q="$q" STDIN="$STDIN" URL="$URL" MAX_TOKENS="$MAX_TOKENS" python3 -I - "${files[@]}" <<'PY'
 import json, os, re, sys, urllib.request
 roles = {
  "general": "You are a precise senior engineer. Answer concisely. If unsure, say so; never invent APIs, flags or file contents.",
@@ -131,7 +133,7 @@ body = {
   "model": "local",
   "messages": [{"role": "system", "content": roles[os.environ["ROLE"]]},
                {"role": "user", "content": ("\n\n".join(parts) + "\n\n" if parts else "") + "TASK: " + q}],
-  "temperature": 0.2, "max_tokens": int(os.environ["MAX_TOKENS"]), "stream": False,
+  "reasoning_effort": os.environ["EFFORT"], "temperature": 0.2, "max_tokens": int(os.environ["MAX_TOKENS"]), "stream": False,
 }
 try:
     with urllib.request.urlopen(os.environ["URL"] + "/v1/models", timeout=5) as r:
