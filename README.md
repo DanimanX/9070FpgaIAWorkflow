@@ -30,9 +30,11 @@ In this setup, **Ollama Vulkan** runs **`qwen2.5-coder-14b-fpga`** (`hf.co/barto
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"claude"| Claude["Claude Code (Architect)"]
-    Claude -->|"qwen-rtl --audit / --tb / -f (structural only)"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (100% 16 GB VRAM, 32K ctx)"]
+    Claude -->|"qwen-rtl --audit / --tb / -f (structural only)"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (16 GB VRAM, 32K ctx)"]
+    Claude -->|"qwen-vl --ocr / --diagram / --ui (auto-swaps VRAM)"| QwenVL["qwen-vl (CLI)<br/>qwen2.5vl:7b<br/>Ollama Vulkan (~5.4 GB VRAM, 60s TTL)"]
     Claude -->|"Timing / protocols / multi-file / >32K"| CW["codewhale (deepseek-flash)"]
     Ctrl["qwen-local (subir / bajar / status)"] -->|"Manages VRAM lifecycle"| QwenRTL
+    QwenVL -.->|"Unloads 14B coder before run"| QwenRTL
     Claude -->|"Lint / Sim / Synthesis"| Tools["Verilator / Questa / Quartus Prime"]
     CW -->|"Lint / Sim / Synthesis"| Tools
 ```

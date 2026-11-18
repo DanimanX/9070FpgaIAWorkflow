@@ -15,8 +15,9 @@ Agent-assisted development architecture where **Claude Code** acts as the lead a
 flowchart LR
     Dev(["Developer"]) -->|"Prompt / Objective"| Claude["Claude Code (Lead Architect)"]
 
-    subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM)"]
+    subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM, Swapped)"]
         Qwen["Ollama Vulkan: qwen2.5-coder-14b-fpga<br/>(Q5_K_M, 100% GPU, 32K ctx)"]
+        QwenVL["Ollama Vulkan: qwen2.5vl:7b<br/>(Vision OCR/Diagrams/UI, ~5.4 GB, 60s TTL)"]
     end
 
     subgraph CloudAPI["Remote Escalation"]
@@ -29,7 +30,9 @@ flowchart LR
         Quartus["Intel Quartus Prime (quartus_sh)"]
     end
 
-    Claude <-->|"qwen-rtl (--audit / --tb / stdin)"| Qwen
+    Claude <-->|"qwen-rtl (--audit / --tb / -f)"| Qwen
+    Claude <-->|"qwen-vl (--ocr / --diagram / --ui)"| QwenVL
+    QwenVL -.->|"Auto-unloads 14B coder"| Qwen
     Claude <-->|"codewhale exec (complex/multi-file)"| CW
     Claude -->|"Applies edits & checks AGENTS.md"| FS
     CW -->|"Autonomous workspace-write"| FS
@@ -46,16 +49,21 @@ sequenceDiagram
     actor Dev as Developer
     participant Claude as Claude Code (Architect)
     participant Qwen as qwen-rtl (RX 9070 XT, 14B)
+    participant QwenVL as qwen-vl (RX 9070 XT, 7B VL)
     participant CW as codewhale (deepseek-flash)
     participant Tools as Verilator / Quartus (i7-14700KF)
 
-    Dev->>Claude: Requests RTL change, testbench, or build
+    Dev->>Claude: Requests RTL change, testbench, image analysis, or build
     Claude->>Claude: Checks AGENTS.md and routes task
 
     alt Local Structural Task (RTL Inventory / Testbench Skeleton / Auxiliary / Warnings)
         Claude->>Qwen: Runs qwen-rtl --audit / --tb -f rtl/mod.sv
         Qwen-->>Claude: Returns port/FSM inventory or SV/cocotb skeleton
         Claude->>Claude: Reviews & fills timing-dependent checks (or escalates to CW)
+    else Local Image / Screenshot Task (OCR / Diagrams / UI, non-waveform timing)
+        Claude->>QwenVL: Runs qwen-vl --ocr / --diagram / --ui -f img.png
+        QwenVL->>Qwen: Auto-unloads 14B coder from VRAM
+        QwenVL-->>Claude: Returns extracted text / diagram / UI summary (60s TTL)
     else Timing / Protocol / Multi-file Task (Cycle trace / >32K ctx / Architecture / CDC / .sdc)
         Claude->>CW: Escalates via codewhale exec --sandbox read-only / workspace-write
         CW-->>Claude: Returns timing analysis, checking logic, constraints, or patch
@@ -92,8 +100,10 @@ flowchart TD
     %% Cloud / Architect Branch
     Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc"| Arch["Claude Code + codewhale (deepseek-flash) - Timing, protocols & >32K ctx"]
 
-    %% Local Branch
+    %% Local Branches
     Claude -->|"Structural Inventory / TB Skeletons / Auxiliary modules / Warning cleanup"| Local["qwen-rtl (RX 9070 XT - 16 GB VRAM) - qwen2.5-coder-14b-fpga (Ollama Vulkan)"]
+    Claude -->|"Images / Screenshots / OCR / Block Diagrams (non-waveform timing)"| LocalVL["qwen-vl (RX 9070 XT - ~5.4 GB, auto-swap) - qwen2.5vl:7b (60s TTL)"]
+    LocalVL --> Claude
 
     %% Convergence in code
     Arch --> RTL["Source Code & Configuration: rtl/*.sv | rtl/*.vhd | core.json | .sdc | .qsf"]
