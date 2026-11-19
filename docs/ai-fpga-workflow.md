@@ -14,9 +14,10 @@ Agent-assisted development architecture where **Claude Code** acts as the lead a
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"Prompt / Objective"| Claude["Claude Code (Lead Architect)"]
+    Dev -->|"hermes (64K ctx)"| Hermes["Hermes Agent<br/>strata connect hermes"]
 
     subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM, Swapped)"]
-        Strata["Strata HIP: Qwen3.6-35B-A3B UD-Q4_K_XL<br/>(daily minion: FPGA / IaC / Rust VST, 32K ctx, VRAM+RAM)"]
+        Strata["Strata HIP: Qwen3.8-Flash-Next IQ3_S<br/>(daily minion: FPGA / IaC / Rust VST, 64K ctx, VRAM+RAM)"]
         Qwen["Ollama Vulkan: qwen2.5-coder-14b-fpga<br/>(Q5_K_M, 100% GPU, 32K ctx)"]
         QwenVL["Ollama Vulkan: qwen2.5vl:7b<br/>(Vision OCR/Diagrams/UI, ~5.4 GB, 60s TTL)"]
     end
@@ -31,6 +32,7 @@ flowchart LR
         Quartus["Intel Quartus Prime (quartus_sh)"]
     end
 
+    Hermes <-->|"OpenAI API (:8080/v1, 64K)"| Strata
     Claude <-->|"strata-local ask (--sum / --rtl / --iac / --rust / --review)"| Strata
     Strata -.->|"Exclusive VRAM: unloads Ollama"| Qwen
     Claude <-->|"qwen-rtl (--audit / --tb / -f)"| Qwen
@@ -50,12 +52,19 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor Dev as Developer
+    participant Hermes as Hermes Agent (64K)
     participant Claude as Claude Code (Architect)
-    participant Strata as Strata (Qwen3.6-35B-A3B)
+    participant Strata as Strata (Qwen3.8-Flash-Next IQ3_S)
     participant Qwen as qwen-rtl (RX 9070 XT, 14B)
     participant QwenVL as qwen-vl (RX 9070 XT, 7B VL)
     participant CW as codewhale (deepseek-flash)
     participant Tools as Verilator / Quartus / terraform / cargo
+
+    opt Direct Hermes Agent session
+        Dev->>Hermes: Runs hermes (64K context)
+        Hermes->>Strata: OpenAI API (:8080/v1, qwen3.8-flash-next-iq3_s)
+        Strata-->>Hermes: Response (~70-92 tok/s)
+    end
 
     Dev->>Claude: Requests RTL, IaC or Rust VST change, image analysis, or build
     Claude->>Claude: Checks AGENTS.md + skill hybrid-local-ai, routes task
@@ -105,10 +114,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Dev(["Developer / Prompt in Claude Code"]) --> Claude{"Claude Code (AGENTS.md + hybrid-local-ai)"}
+    Dev(["Developer / Prompt in Claude Code or Hermes"]) -->|"hermes (64K)"| Hermes["Hermes Agent (:8080/v1)"]
+    Hermes --> Strata
+    Dev --> Claude{"Claude Code (AGENTS.md + hybrid-local-ai)"}
 
     Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc / >32K"| Arch["Claude Code + codewhale (deepseek-flash)"]
-    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["Strata - Qwen3.6-35B-A3B UD-Q4_K_XL (VRAM + RAM, ~80 tok/s)"]
+    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["Strata - Qwen3.8-Flash-Next IQ3_S (VRAM + RAM, ~70-92 tok/s, 64K)"]
     Claude -->|"Structural RTL while Quartus compiles"| Local["qwen-rtl - qwen2.5-coder-14b-fpga (Ollama Vulkan, VRAM only)"]
     Claude -->|"Images / Screenshots / OCR / Block Diagrams"| LocalVL["qwen-vl - qwen2.5vl:7b (60s TTL)"]
     LocalVL --> Claude
@@ -144,7 +155,7 @@ flowchart TD
 
 | Component | Allocated Resource | Role in Pipeline |
 | :--- | :--- | :--- |
-| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM, exclusive | **Strata** (Qwen3.6-35B-A3B, 81/256 experts per layer in VRAM) via `strata-local`, **or** Ollama Vulkan (`qwen2.5-coder-14b-fpga`, `qwen2.5vl:7b`) via `qwen-rtl` / `qwen-vl` |
+| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM, exclusive | **Strata** (`Qwen3.8-Flash-Next IQ3_S`, 4,875 expert slots + MTP in VRAM, 64K ctx) via `strata-local` / Hermes Agent, **or** Ollama Vulkan (`qwen2.5-coder-14b-fpga`, `qwen2.5vl:7b`) via `qwen-rtl` / `qwen-vl` |
 | **Intel i7-14700KF (20 cores)** | CPU Compute | RTL simulation (Verilator/Questa) and Quartus Place & Route |
-| **64 GB DDR5 RAM** | ~12-16 GB to Strata while running | Remaining Strata experts; stop Strata before Quartus so compilation gets the full RAM |
+| **64 GB DDR5 RAM** | ~47 GB to Strata while running | Remaining Strata weights/KV in pinned RAM; stop Strata before Quartus so compilation gets the full RAM |
 | **Claude Code + `codewhale`** | Remote API | Lead architecture, CDC, `.sdc`, `.sta.rpt` / `.fit.rpt` analysis, and multi-file edits (`deepseek-flash`) |

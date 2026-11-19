@@ -34,7 +34,9 @@ In this setup, **Ollama Vulkan** runs **`qwen2.5-coder-14b-fpga`** (`hf.co/barto
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"claude"| Claude["Claude Code (Architect)"]
-    Claude -->|"strata-local ask --sum / --rtl / --iac / --rust / --review"| Strata["Strata (HIP)<br/>Qwen3.6-35B-A3B UD-Q4_K_XL<br/>VRAM + ~12-16 GB RAM, 32K ctx, ~80 tok/s"]
+    Dev -->|"hermes (64K ctx)"| Hermes["Hermes Agent<br/>strata connect hermes"]
+    Hermes <-->|"OpenAI API (:8080/v1)"| Strata
+    Claude -->|"strata-local ask --sum / --rtl / --iac / --rust / --review"| Strata["Strata (HIP)<br/>Qwen3.8-Flash-Next IQ3_S<br/>VRAM + ~47 GB RAM, 64K ctx, ~70-90 tok/s"]
     Claude -->|"qwen-rtl --audit / --tb / -f (structural, during Quartus)"| QwenRTL["qwen-rtl (stdin/CLI)<br/>qwen2.5-coder-14b-fpga<br/>Ollama Vulkan (16 GB VRAM, 32K ctx)"]
     Claude -->|"qwen-vl --ocr / --diagram / --ui (auto-swaps VRAM)"| QwenVL["qwen-vl (CLI)<br/>qwen2.5vl:7b<br/>Ollama Vulkan (~5.4 GB VRAM, 60s TTL)"]
     Claude -->|"Timing / protocols / multi-file / >32K"| CW["codewhale (deepseek-flash)"]
@@ -74,17 +76,17 @@ Higher complexity tasks and all timing-sensitive delegable work stay in Claude C
 
 ---
 
-## Strata Daily Minion (Qwen3.6-35B-A3B) — FPGA, DevOps/IaC and Rust VST
+## Strata Daily Minion (`Qwen3.8-Flash-Next IQ3_S`) + Hermes Agent — FPGA, DevOps/IaC and Rust VST
 
-[Strata](https://github.com/Niko1221/Strata) serves **Qwen3.6-35B-A3B UD-Q4_K_XL** (Unsloth GGUF + MTP draft layer) on the RX 9070 XT in hybrid mode: hot experts in the 16 GB of VRAM, the rest in RAM, 32K context, OpenAI-compatible API on `http://127.0.0.1:8080/v1`. It is the default local minion for bounded work in every domain, wrapped by [`scripts/strata-local`](./scripts/strata-local).
+[Strata](https://github.com/Niko1221/Strata) serves **`Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S`** (native pack + PLE + MTP draft layer, 64K context with 32K KV resident in VRAM and KV streaming) on the RX 9070 XT in hybrid mode: 4,875 hot expert slots (~9.28 GiB) + MTP (~835 MiB) in the 16 GB of VRAM, the rest (~46.8 GiB) in pinned host RAM, OpenAI-compatible API on `http://127.0.0.1:8080/v1` (~70–92 tok/s). It serves both **Claude Code** (via [`scripts/strata-local`](./scripts/strata-local)) and **Hermes Agent** (`/usr/bin/hermes`, wired via `strata connect hermes`).
 
-**Why this model (2026-11-18):**
+**Model selection (updated 2026-11-19):**
 
-| Candidate in Strata | RAM for the model | Verdict for this box (16 GB VRAM, 64 GB RAM, Quartus) |
+| Candidate in Strata | RAM / Disk for the model | Verdict for this box (16 GB VRAM, 64 GB RAM, Quartus) |
 | --- | ---: | --- |
-| **Qwen3.6-35B-A3B UD-Q4_K_XL** | ~32 GB plan, 22.9 GB file | **Chosen.** General + code (IaC, Rust, Spanish), MoE 3B active (fast decode), smallest download, leaves room for Quartus, Apache 2.0 |
+| **Qwen3.8-Flash-Next IQ3_S** | ~47 GB loaded (~78 GB shards) | **Chosen (2026-11-19).** Higher quality + 64K context required by Hermes Agent (`65536` ctx, `int8` KV). Stop Strata before Quartus/Verilator compiles |
+| Qwen3.6-35B-A3B UD-Q4_K_XL | ~32 GB plan, 22.9 GB file | Previous daily minion (2026-11-18); lighter on RAM (32K ctx), replaced for Hermes 64K support |
 | Qwen3.8-Flash-Next Coder IQ1_M | 23 GB experts + buffers | Code-only, weak outside code and in Spanish; wandered as an agent (2026-11-16) |
-| Qwen3.8-Flash-Next IQ2_XS / IQ3_S | 39–55 GB | Better quality but leaves no RAM for Quartus/Verilator |
 | Unsloth UD-IQ4_XS+ / NVFP4 | 72–136 GB | Do not fit / NVIDIA only |
 
 ```bash
@@ -92,8 +94,9 @@ Higher complexity tasks and all timing-sensitive delegable work stay in Claude C
 curl -fsSL https://github.com/Niko1221/Strata/releases/latest/download/install.sh -o /tmp/strata-install.sh && sh /tmp/strata-install.sh
 install -m755 scripts/strata-local ~/.local/bin/ && cp -r skills/hybrid-local-ai ~/.claude/skills/
 
-strata-local plan     # what will be downloaded (~24 GB), nothing changes
-strata-local start    # unloads Ollama, first run: --tune skip + saves preset "daily"
+strata-local plan     # inspect download/memory plan, nothing changes
+strata-local start    # unloads Ollama, launches preset "daily" (qwen / IQ3_S / 64K ctx)
+strata connect hermes # configures ~/.hermes/config.yaml (qwen3.8-flash-next-iq3_s @ :8080/v1, 64K)
 strata-local ask --iac  "Terraform: GCS bucket with lifecycle and FinOps labels"
 strata-local ask --rust -f src/lib.rs "add a bypass BoolParam"
 strata-local ask --rtl  -f rtl/core_top.sv
@@ -154,9 +157,9 @@ codewhale exec --resume <SESSION_ID> --auto --sandbox workspace-write "<follow-u
 
 | Component | Specification | Role |
 | :--- | :--- | :--- |
-| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference: **Strata** (Qwen3.6-35B-A3B, HIP, hybrid VRAM+RAM) or **Ollama Vulkan** (`qwen2.5-coder-14b-fpga`, 100% GPU) — exclusive |
+| **GPU** | AMD Radeon RX 9070 XT (16 GB VRAM) | Local inference: **Strata** (`Qwen3.8-Flash-Next IQ3_S`, HIP, hybrid VRAM+RAM) or **Ollama Vulkan** (`qwen2.5-coder-14b-fpga`, 100% GPU) — exclusive |
 | **CPU** | Intel i7-14700KF / i9-14900K | RTL simulation (Verilator / Questa) and Quartus Place & Route |
-| **RAM** | 64 GB DDR5 | Quartus/simulation; Strata takes ~12–16 GB while running (stop it before Quartus) |
+| **RAM** | 64 GB DDR5 | Quartus/simulation; Strata takes ~47 GB while running (stop it before Quartus) |
 | **OS** | Arch Linux | Development, simulation, and synthesis environment |
 | **Target FPGA** | Intel Cyclone V (`5CEBA4F23C8` / `5CEFA7F27C8`) | Synthesis and `.rbf` bitstream generation for openFPGA |
 
