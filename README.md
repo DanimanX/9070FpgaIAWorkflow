@@ -31,6 +31,8 @@ In this setup, **[Strata](https://github.com/Niko1221/Strata)** (`inkling2` engi
 - **`codewhale`** (default `deepseek-flash`): Autonomous multi-file orchestrator when timing/protocol reasoning, testbench checking logic, or >64K context is needed. Profile `strata` (`--profile strata --max-turns 8`) targets the local endpoint for single-file tasks.
 - **Claude Code**: Lead architect that delegates bounded reading, summaries, structural RTL inventory, and boilerplate to Strata, escalates timing/cycle-level or multi-file work to `codewhale`, makes final diagnoses, and verifies against code and simulations (`verilator --lint-only`, `iverilog`, `quartus_sh`, `terraform validate`, `cargo clippy`).
 
+![Strata Hybrid AI Workflow](./docs/assets/strata-hybrid-workflow.gif)
+
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"claude"| Claude["Claude Code (Architect)"]

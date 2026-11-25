@@ -11,6 +11,8 @@ Agent-assisted development architecture where **Claude Code** acts as the lead a
 > [!IMPORTANT]
 > **Structural-Only Boundary for Local Models:** Strata (`Inkling-2-Mini SQ-15`) is used **only** for summaries, structural/inventory work, boilerplate, and first-pass reviews. It must **not** be used for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols. All timing/protocol reasoning routes to `codewhale` (`deepseek-flash`) or Claude Code.
 
+![Strata Hybrid AI Workflow](./assets/strata-hybrid-workflow.gif)
+
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"Prompt / Objective"| Claude["Claude Code (Lead Architect)"]
