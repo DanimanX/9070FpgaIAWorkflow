@@ -80,14 +80,13 @@ Higher complexity tasks and all timing-sensitive delegable work stay in Claude C
 
 [Strata](https://github.com/Niko1221/Strata) (`inkling2` engine `0.1.67`) serves **`Inkling-2-Mini-SQ-15`** (26.4B MoE / 3.4B active, embedded DSpark drafter, 64K context) **100% inside the RX 9070 XT's 16 GB VRAM** (~11.86 GB experts in VRAM + ~0.42 GB in RAM, leaving ~45–58 GB system RAM free), exposing an OpenAI-compatible API on `http://127.0.0.1:8080/v1` (**~62–78 tok/s**). It serves **Claude Code** (via [`scripts/strata-local`](./scripts/strata-local)), **Hermes Agent** (`/usr/bin/hermes`), and **`codewhale --profile strata`**.
 
-**Model selection (updated 2026-11-25):**
+**Active Strata configuration:**
 
-| Candidate in Strata | RAM / VRAM footprint | Verdict for this box (16 GB VRAM, 64 GB RAM, Quartus) |
-| --- | ---: | --- |
-| **Inkling-2-Mini SQ-15** | 14.35 GB (100% VRAM + ~0.4 GB RAM) | **Chosen (2026-11-25).** ~62–78 tok/s steady, 64K ctx, strong tool-calling and `68k → C` accuracy (`reasoning_effort=low` for code/agents, `none` for fast summaries, `max_tokens >= 4096`) |
-| Qwen3.8-Flash-Next IQ3_S | ~51 GB RAM + 15.5 GB VRAM | Too tight on 62.5 GB host RAM; sustained load caused AMD driver pauses (1.8 s) and GPU timeouts (`HTTP 503`) |
-| Qwen3.6-35B-A3B UD-Q4_K_XL | 22.9 GB (~18.8 GB pinned RAM) | At 128K ctx only 17/256 experts fit in VRAM, dropping median speed to ~24 tok/s and causing Hermes 900s timeouts |
-| Qwen3.8-Flash-Next Coder IQ1_M | 23 GB experts + buffers | Code-only, weak outside code and in Spanish; wandered as an agent (2026-11-16) |
+| Setting | Value | Notes |
+| --- | --- | --- |
+| **Model** | `inkling-2-mini-sq-15` (Strata `0.1.67`, `inkling2`) | 14.35 GB total; 11.86 GB experts + DSpark in VRAM, ~0.42 GB RAM |
+| **Endpoint / Context** | `http://127.0.0.1:8080/v1` · `64K` (`65536`) · `--parallel 1` | ~62–78 tok/s steady, leaves ~45–58 GB system RAM free |
+| **Reasoning / Tokens** | `none` (`strata-local ask`), `low` (Hermes / `codewhale --profile strata`) | Always use `max_tokens >= 4096` (`--think` opts in on `ask`) |
 
 ```bash
 # Install (user space, ~/.local) and wire up
