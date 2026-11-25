@@ -6,11 +6,11 @@ Follow all rules in [`AGENTS.md`](./AGENTS.md). The hybrid delegation workflow i
 
 Claude is the lead architect: it decides, reviews and verifies. Bounded work goes local (0 cloud tokens); delegable reasoning and large context go to `codewhale`.
 
-- **Strata (`strata-local ask`) — default local minion** (Qwen3.6-35B-A3B UD-Q4_K_XL, MoE 3B active, 32K ctx, `http://127.0.0.1:8080/v1`, full RX 9070 XT VRAM + ~12–16 GB RAM):
+- **Strata (`strata-local ask`) — default local minion** (Inkling-2-Mini SQ-15, 26.4B MoE / 3.4B active, 64K ctx, `http://127.0.0.1:8080/v1`, 100% RX 9070 XT VRAM + ~0.4 GB RAM, ~62–78 tok/s):
   - Summaries of files/logs (`--sum`), structural RTL inventory (`--rtl`), Terraform/Helm/Ansible/CI boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`), commit messages and docs.
-  - Measured 2026-11-18: ~80 tok/s; `ask` defaults to `reasoning_effort=none` (47 s → 5.6 s), `--think` to opt in. RTL inventory reliable; IaC good but check provider/default_tags; **Rust: always pass a real nih-plug file with `-f`** (without it the API is invented) and verify with `cargo check` — DSP math stays in Claude.
-  - Lifecycle: `strata-local status | start | stop | logs | plan`. `start` unloads Ollama and refuses while Quartus or `memtester` run or with <24 GB RAM available. **Stop Strata before Quartus compiles.**
-  - As an agent: `codewhale --profile strata exec --max-turns 8 ...`, one file / one question only (it wanders on open research, measured 2026-11-16).
+  - Defaults: `ask` uses `reasoning_effort=none` for fast summaries/boilerplate (`--think` opts in); Hermes and `codewhale --profile strata` use `reasoning_effort=low` (`max_tokens >= 4096`). **Rust: always pass a real nih-plug file with `-f`** (without it the API is invented) and verify with `cargo check` — DSP math stays in Claude.
+  - Lifecycle: `strata-local status | start | stop | logs | plan`. `start` unloads Ollama and refuses while Quartus or `memtester` run or with <16 GB RAM available. **Stop Strata before Quartus compiles.**
+  - As an agent: `codewhale --profile strata exec --max-turns 8 ...` or `hermes chat -q "..." --oneshot`, one file / one routine at a time (`--parallel 1`).
 - **`qwen-rtl` (Ollama Vulkan, `qwen2.5-coder-14b-fpga`, VRAM only)** — structural RTL inventory and TB skeletons when Strata is down, especially **during Quartus compiles** (it uses no system RAM): `qwen-rtl --audit|--tb|--cocotb -f <file>`; VRAM with `qwen-local status|subir|bajar`.
 - **`qwen-vl` (`qwen2.5vl:7b`)** — UI captures, diagrams, crisp text: `qwen-vl --ocr|--diagram|--ui -f img.png`. Not for pixelated hex/register fonts or waveform cycle counting (measured 2026-11-17 on `IMG_20261115_172933.jpg`).
 - **VRAM is exclusive:** Strata OR Ollama. Run `strata-local stop` before `qwen-rtl` / `qwen-vl`.

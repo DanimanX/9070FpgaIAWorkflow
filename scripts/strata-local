@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# strata-local — ciclo de vida y "minion" CLI de Strata (Qwen3.6-35B-A3B UD-Q4_K_XL) en la RX 9070 XT.
+# strata-local — ciclo de vida y "minion" CLI de Strata (Inkling-2-Mini SQ-15) en la RX 9070 XT.
 #
 #   strata-local start [--force]   Libera VRAM de Ollama y arranca Strata (preset "daily", puerto 8080)
 #   strata-local stop              Detiene Strata
@@ -7,7 +7,7 @@
 #   strata-local logs              Últimas líneas del log del motor
 #   strata-local plan              Muestra el plan de strata launch (no descarga ni cambia nada)
 #   strata-local ask [--rtl|--iac|--rust|--review|--sum] [--think] [-f FILE]... ["pregunta"]   (stdin también)
-#                  Sin --think: reasoning_effort=none (~6x más rápido). --think: medium.
+#                  Sin --think: reasoning_effort=none (rápido). --think: low (recomendado para código/68k).
 #
 # Reglas (ver ~/.claude/skills/hybrid-local-ai/SKILL.md):
 #  - No arranca si memtester o Quartus están corriendo, ni con menos de STRATA_MIN_FREE_GB de RAM disponible.
@@ -18,10 +18,12 @@ STRATA_BIN="${STRATA_BIN:-$HOME/.local/bin/strata}"
 URL="${STRATA_URL:-http://127.0.0.1:8080}"
 PORT="${STRATA_PORT:-8080}"
 PRESET="${STRATA_PRESET:-daily}"
-FAMILY="${STRATA_FAMILY:-qwen36}"
-MODEL="${STRATA_MODEL:-UD-Q4_K_XL}"
-CONTEXT="${STRATA_CONTEXT:-32k}"
-MIN_FREE_GB="${STRATA_MIN_FREE_GB:-24}"
+FAMILY="${STRATA_FAMILY:-inkling-2-mini}"
+MODEL="${STRATA_MODEL:-SQ-15}"
+CONTEXT="${STRATA_CONTEXT:-64k}"
+KV="${STRATA_KV:-fp8}"
+VISION="${STRATA_VISION:-off}"
+MIN_FREE_GB="${STRATA_MIN_FREE_GB:-16}"
 MAX_TOKENS="${STRATA_MAX_TOKENS:-4096}"
 
 die() { echo "strata-local: $*" >&2; exit 1; }
@@ -59,7 +61,7 @@ case "${1:-status}" in
     else
       # Primer arranque: sin --tune (no mezclar tuning con cambios de opciones) y guarda el preset.
       "$STRATA_BIN" launch --family "$FAMILY" --model "$MODEL" --context "$CONTEXT" \
-        --vision cpu --parallel 1 --tune skip --access local --no-api-key --port "$PORT" \
+        --kv "$KV" --vision "$VISION" --parallel 1 --tune skip --access lan --no-api-key --port "$PORT" \
         --save-preset "$PRESET" --no-tui --yes
     fi
     echo "Esperando a que $URL responda (la primera vez descarga ~24 GB)..."
@@ -86,7 +88,7 @@ case "${1:-status}" in
     ;;
   plan)
     need_bin
-    "$STRATA_BIN" launch --plan --family "$FAMILY" --model "$MODEL" --context "$CONTEXT" --vision cpu --parallel 1
+    "$STRATA_BIN" launch --plan --family "$FAMILY" --model "$MODEL" --context "$CONTEXT" --kv "$KV" --vision "$VISION" --parallel 1
     ;;
   ask)
     shift

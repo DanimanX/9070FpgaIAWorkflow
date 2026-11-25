@@ -2,9 +2,10 @@
 
 ## 0. Hybrid Local Minion: Strata (all domains)
 
-- **`strata-local ask`** (Strata, Qwen3.6-35B-A3B UD-Q4_K_XL, 32K ctx, `http://127.0.0.1:8080/v1`) is the default local minion for bounded work in **FPGA, DevOps/IaC and Rust VST3/CLAP**: summaries (`--sum`), structural RTL inventory (`--rtl`, same limits as `qwen-rtl`), IaC boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`).
-- **VRAM is exclusive** between Strata and Ollama (`qwen-rtl`, `qwen-vl`). **Stop Strata before Quartus compiles** (`strata-local stop`); during compiles use `qwen-rtl` (VRAM only, no system RAM).
-- Agent use only as `codewhale --profile strata exec --max-turns 8`, one file / one question. Full rules: [`skills/hybrid-local-ai/SKILL.md`](./skills/hybrid-local-ai/SKILL.md).
+- **`strata-local ask`** (Strata `0.1.67`, Inkling-2-Mini SQ-15, 26.4B MoE / 3.4B active, 64K ctx, `http://127.0.0.1:8080/v1`, 100% VRAM + ~0.4 GB RAM, ~62–78 tok/s) is the default local minion for bounded work in **FPGA, DevOps/IaC and Rust VST3/CLAP**: summaries (`--sum`), structural RTL inventory (`--rtl`, same limits as `qwen-rtl`), IaC boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`).
+- **Rules learned from benchmarking:** **always `max_tokens >= 4096`** (with 1024 it burns the budget thinking and returns empty `content`); use `reasoning_effort=none` for fast `ask` summaries and `reasoning_effort=low` for code/agent tasks (`hermes` / `codewhale --profile strata`). Always pass `-f` a real file for Rust/nih-plug.
+- **VRAM is exclusive** between Strata and Ollama (`qwen-rtl`, `qwen-vl`). **Stop the local minion before Quartus compiles** (`strata-local stop`); during compiles use `qwen-rtl` (VRAM only, no system RAM).
+- Agent use only as `codewhale --profile strata exec --max-turns 8` or `hermes chat -q "..." --oneshot`, one file / one routine at a time (`--parallel 1`). Full rules: [`skills/hybrid-local-ai/SKILL.md`](./skills/hybrid-local-ai/SKILL.md).
 
 ## 1. Model Routing (`qwen-rtl` & `codewhale`)
 

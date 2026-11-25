@@ -17,7 +17,7 @@ flowchart LR
     Dev -->|"hermes (64K ctx)"| Hermes["Hermes Agent<br/>strata connect hermes"]
 
     subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM, Swapped)"]
-        Strata["Strata HIP: Qwen3.8-Flash-Next IQ3_S<br/>(daily minion: FPGA / IaC / Rust VST, 64K ctx, VRAM+RAM)"]
+        Strata["Strata HIP 0.1.67: Inkling-2-Mini SQ-15<br/>(daily minion: FPGA / IaC / Rust VST / 68k, 64K ctx, 100% VRAM)"]
         Qwen["Ollama Vulkan: qwen2.5-coder-14b-fpga<br/>(Q5_K_M, 100% GPU, 32K ctx)"]
         QwenVL["Ollama Vulkan: qwen2.5vl:7b<br/>(Vision OCR/Diagrams/UI, ~5.4 GB, 60s TTL)"]
     end
@@ -54,16 +54,16 @@ sequenceDiagram
     actor Dev as Developer
     participant Hermes as Hermes Agent (64K)
     participant Claude as Claude Code (Architect)
-    participant Strata as Strata (Qwen3.8-Flash-Next IQ3_S)
+    participant Strata as Strata (Inkling-2-Mini SQ-15)
     participant Qwen as qwen-rtl (RX 9070 XT, 14B)
     participant QwenVL as qwen-vl (RX 9070 XT, 7B VL)
     participant CW as codewhale (deepseek-flash)
     participant Tools as Verilator / Quartus / terraform / cargo
 
     opt Direct Hermes Agent session
-        Dev->>Hermes: Runs hermes (64K context)
-        Hermes->>Strata: OpenAI API (:8080/v1, qwen3.8-flash-next-iq3_s)
-        Strata-->>Hermes: Response (~70-92 tok/s)
+        Dev->>Hermes: Runs hermes chat --oneshot (64K context, reasoning=low)
+        Hermes->>Strata: OpenAI API (:8080/v1, inkling-2-mini-sq-15)
+        Strata-->>Hermes: Response (~62-78 tok/s)
     end
 
     Dev->>Claude: Requests RTL, IaC or Rust VST change, image analysis, or build
@@ -119,7 +119,7 @@ flowchart TD
     Dev --> Claude{"Claude Code (AGENTS.md + hybrid-local-ai)"}
 
     Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc / >32K"| Arch["Claude Code + codewhale (deepseek-flash)"]
-    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["Strata - Qwen3.8-Flash-Next IQ3_S (VRAM + RAM, ~70-92 tok/s, 64K)"]
+    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["Strata - Inkling-2-Mini SQ-15 (100% VRAM, ~62-78 tok/s, 64K)"]
     Claude -->|"Structural RTL while Quartus compiles"| Local["qwen-rtl - qwen2.5-coder-14b-fpga (Ollama Vulkan, VRAM only)"]
     Claude -->|"Images / Screenshots / OCR / Block Diagrams"| LocalVL["qwen-vl - qwen2.5vl:7b (60s TTL)"]
     LocalVL --> Claude
@@ -155,7 +155,7 @@ flowchart TD
 
 | Component | Allocated Resource | Role in Pipeline |
 | :--- | :--- | :--- |
-| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM, exclusive | **Strata** (`Qwen3.8-Flash-Next IQ3_S`, 4,875 expert slots + MTP in VRAM, 64K ctx) via `strata-local` / Hermes Agent, **or** Ollama Vulkan (`qwen2.5-coder-14b-fpga`, `qwen2.5vl:7b`) via `qwen-rtl` / `qwen-vl` |
+| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM, exclusive | **Strata** (`Inkling-2-Mini SQ-15`, 11.86 GB experts + DSpark in VRAM, 64K ctx) via `strata-local` / Hermes Agent, **or** Ollama Vulkan (`qwen2.5-coder-14b-fpga`, `qwen2.5vl:7b`) via `qwen-rtl` / `qwen-vl` |
 | **Intel i7-14700KF (20 cores)** | CPU Compute | RTL simulation (Verilator/Questa) and Quartus Place & Route |
-| **64 GB DDR5 RAM** | ~47 GB to Strata while running | Remaining Strata weights/KV in pinned RAM; stop Strata before Quartus so compilation gets the full RAM |
+| **64 GB DDR5 RAM** | ~0.4 GB to Strata while running | ~58 GB remains free; still stop Strata before Quartus compiles |
 | **Claude Code + `codewhale`** | Remote API | Lead architecture, CDC, `.sdc`, `.sta.rpt` / `.fit.rpt` analysis, and multi-file edits (`deepseek-flash`) |
