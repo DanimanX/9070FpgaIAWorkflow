@@ -1,38 +1,38 @@
 # Hybrid openFPGA + Intel Quartus Prime Development Workflow
 
-Agent-assisted development architecture where **Claude Code** acts as the lead architect, offloading bounded reading, summaries, structural RTL inventory, and boilerplate to **Strata** (**`Inkling-2-Mini SQ-15`** running 100% on **RX 9070 XT 16 GB VRAM** via **HIP 0.1.67**), running **Hermes Agent** or `codewhale --profile strata` for bounded local tool-calling, escalating timing/protocol reasoning and autonomous multi-file tasks (>64K context) to **`codewhale`** (`deepseek-flash`), and running local toolchains (**Verilator / Icarus Verilog / Questa / Intel Quartus Prime**) on **64 GB DDR5 RAM**.
+Agent-assisted development architecture where **Claude Code** acts as the lead architect, offloading bounded reading, summaries, structural RTL inventory, and boilerplate to **[RustingStrata](https://github.com/RustingStudio/RustingStrata)** (**`Qwen3.6-35B-A3B UD-Q4_K_XL`** on the **RX 9070 XT 16 GB** via **Vulkan**, `1.3.7`), running **Hermes Agent** or `codewhale --profile strata` for bounded local tool-calling, escalating timing/protocol reasoning and autonomous multi-file tasks (>32K context) to **`codewhale`** (`deepseek-flash`), and running local toolchains (**Verilator / Icarus Verilog / Questa / Intel Quartus Prime**) on **64 GB DDR5 RAM**.
 
 ---
 
-## 1. Integration Architecture (`Claude Code + Strata + Hermes + codewhale`)
+## 1. Integration Architecture (`Claude Code + RustingStrata + Hermes + codewhale`)
 
-**Strata** serves **`Inkling-2-Mini SQ-15`** (64K context) 100% in VRAM (`11.86 GB` experts + DSpark in VRAM, `~0.42 GB` in RAM), leaving **~45–58 GB** of system RAM free for Quartus Prime and simulation.
+**RustingStrata** serves **`Qwen3.6-35B-A3B`** (32K context, alias `qwen3.6-35b-a3b`) with ~88% of the MoE experts resident in VRAM and the rest computed on the CPU (~0.2 GB process RAM + ~21 GB reclaimable page cache), at **~100–130 tok/s** decode. It replaced Strata + `Inkling-2-Mini SQ-15` on 2026-11-26 after a same-method A/B ([README benchmark](../README.md#benchmark-rustingstrata-vs-strata-on-the-rx-9070-xt)); Inkling remains as fallback (`STRATA_ENGINE=inkling`).
 
 > [!IMPORTANT]
-> **Structural-Only Boundary for Local Models:** Strata (`Inkling-2-Mini SQ-15`) is used **only** for summaries, structural/inventory work, boilerplate, and first-pass reviews. It must **not** be used for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols. All timing/protocol reasoning routes to `codewhale` (`deepseek-flash`) or Claude Code.
+> **Structural-Only Boundary for Local Models:** The local minion (`Qwen3.6-35B-A3B` on RustingStrata, or the Inkling fallback) is used **only** for summaries, structural/inventory work, boilerplate, and first-pass reviews. It must **not** be used for timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning, or bus protocols. All timing/protocol reasoning routes to `codewhale` (`deepseek-flash`) or Claude Code.
 
 ![Strata Hybrid AI Workflow](./assets/strata-hybrid-workflow.gif)
 
 ```mermaid
 flowchart LR
     Dev(["Developer"]) -->|"Prompt / Objective"| Claude["Claude Code (Lead Architect)"]
-    Dev -->|"hermes chat --oneshot (64K ctx)"| Hermes["Hermes Agent<br/>:8080/v1 (reasoning=low)"]
+    Dev -->|"hermes chat --oneshot (32K ctx)"| Hermes["Hermes Agent<br/>:8080/v1 (reasoning=low)"]
 
     subgraph LocalGPU["Local Inference - RX 9070 XT (16 GB VRAM)"]
-        Strata["Strata HIP 0.1.67: Inkling-2-Mini SQ-15<br/>(daily minion: FPGA / IaC / Rust VST / 68k, 64K ctx, 100% VRAM)"]
+        Strata["RustingStrata 1.3.7 Vulkan: Qwen3.6-35B-A3B<br/>(daily minion: FPGA / IaC / Rust VST, 32K ctx, ~88% experts in VRAM)"]
     end
 
     subgraph CloudAPI["Remote Escalation"]
-        CW["codewhale (deepseek-flash)<br/>Autonomous multi-file / >64K ctx"]
+        CW["codewhale (deepseek-flash)<br/>Autonomous multi-file / >32K ctx"]
     end
 
-    subgraph Toolchain["Arch Linux Host (64 GB RAM)"]
+    subgraph Toolchain["Arch Linux Host (64 GB RAM, CPU-side experts)"]
         FS["Project Repository (RTL / JSON / .qsf / .sdc / *.tf / *.rs)"]
         Sim["Verilator / Questa"]
         Quartus["Intel Quartus Prime (quartus_sh)"]
     end
 
-    Hermes <-->|"OpenAI API (:8080/v1, 64K)"| Strata
+    Hermes <-->|"OpenAI API (:8080/v1, 32K)"| Strata
     Claude <-->|"strata-local ask (--sum / --rtl / --iac / --rust / --review)"| Strata
     CW -.->|"--profile strata --max-turns 8 (one file)"| Strata
     Claude <-->|"codewhale exec (complex/multi-file)"| CW
@@ -49,16 +49,16 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor Dev as Developer
-    participant Hermes as Hermes Agent (64K)
+    participant Hermes as Hermes Agent (32K)
     participant Claude as Claude Code (Architect)
-    participant Strata as Strata (Inkling-2-Mini SQ-15)
+    participant Strata as RustingStrata (Qwen3.6-35B-A3B)
     participant CW as codewhale (deepseek-flash)
     participant Tools as Verilator / Quartus / terraform / cargo
 
     opt Direct Hermes Agent session
-        Dev->>Hermes: Runs hermes chat --oneshot (64K context, reasoning=low)
-        Hermes->>Strata: OpenAI API (:8080/v1, inkling-2-mini-sq-15)
-        Strata-->>Hermes: Response (~62-78 tok/s)
+        Dev->>Hermes: Runs hermes chat --oneshot (32K context, reasoning=low)
+        Hermes->>Strata: OpenAI API (:8080/v1, qwen3.6-35b-a3b)
+        Strata-->>Hermes: Response (~100-130 tok/s)
     end
 
     Dev->>Claude: Requests RTL, IaC or Rust VST change, or build
@@ -69,7 +69,7 @@ sequenceDiagram
         Claude->>Strata: strata-local ask --sum / --rtl / --iac / --rust / --review (reasoning off)
         Strata-->>Claude: Draft (~2-10 s)
         Claude->>Claude: Reviews draft (Rust: API + DSP math checked by Claude)
-    else Timing / Protocol / Multi-file / >64K ctx / CDC / .sdc
+    else Timing / Protocol / Multi-file / >32K ctx / CDC / .sdc
         Claude->>CW: Escalates via codewhale exec --sandbox read-only / workspace-write
         CW-->>Claude: Returns analysis, checking logic, constraints, or patch
         Claude->>Claude: Verifies DeepSeek output against code & simulations
@@ -83,7 +83,7 @@ sequenceDiagram
         Claude->>Strata: Requests quick fix with the error as context
         Strata-->>Claude: Corrected snippet (wrong twice -> escalate to CW or Claude)
     else OK (FPGA)
-        Claude->>Strata: strata-local stop (free GPU/RAM)
+        Claude->>Strata: strata-local stop (free GPU/RAM/page cache)
         Claude->>Tools: Runs quartus_sh --flow compile
         Tools-->>Claude: Returns .fit.rpt, .sta.rpt, and warnings
         opt Timing Violation (Setup/Hold) or Fitter error
@@ -99,12 +99,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Dev(["Developer / Prompt in Claude Code or Hermes"]) -->|"hermes chat --oneshot (64K)"| Hermes["Hermes Agent (:8080/v1)"]
+    Dev(["Developer / Prompt in Claude Code or Hermes"]) -->|"hermes chat --oneshot (32K)"| Hermes["Hermes Agent (:8080/v1)"]
     Hermes --> Strata
     Dev --> Claude{"Claude Code (AGENTS.md + hybrid-local-ai)"}
 
-    Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc / >64K"| Arch["Claude Code + codewhale (deepseek-flash)"]
-    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["Strata - Inkling-2-Mini SQ-15 (100% VRAM, ~62-78 tok/s, 64K)"]
+    Claude -->|"Timing / Cycle Trace / Bus Protocols / TB Checks / CDC / .sta.rpt / .sdc / >32K"| Arch["Claude Code + codewhale (deepseek-flash)"]
+    Claude -->|"Bounded task, Strata ACTIVE: summaries / RTL inventory / IaC / Rust (with -f context) / reviews"| Strata["RustingStrata - Qwen3.6-35B-A3B (Vulkan, ~100-130 tok/s, 32K)"]
 
     Arch --> Code["Source: rtl/*.sv | core.json | .sdc | .qsf | *.tf | Helm | src/*.rs"]
     Strata --> Code
@@ -135,7 +135,7 @@ flowchart TD
 
 | Component | Allocated Resource | Role in Pipeline |
 | :--- | :--- | :--- |
-| **AMD RX 9070 XT (16 GB)** | ~16 GB VRAM | **Strata** (`Inkling-2-Mini SQ-15`, 11.86 GB experts + DSpark in VRAM, 64K ctx) via `strata-local`, Hermes Agent, or `codewhale --profile strata` |
-| **Intel i7-14700KF / i9-14900K** | CPU Compute | RTL simulation (Verilator/Questa) and Quartus Place & Route |
-| **64 GB DDR5 RAM** | ~0.4 GB to Strata while running | ~58 GB remains free; still stop Strata before Quartus compiles |
+| **AMD RX 9070 XT (16 GB)** | ~15.5 GB VRAM | **RustingStrata** (`Qwen3.6-35B-A3B`, ~6.7k of 10.2k experts + KV 640 MB in VRAM, 32K ctx) via `strata-local`, Hermes Agent, or `codewhale --profile strata` |
+| **Intel i7-14700KF / i9-14900K** | CPU Compute | CPU-side MoE experts while the minion runs; RTL simulation (Verilator/Questa) and Quartus Place & Route |
+| **64 GB DDR5 RAM** | ~0.2 GB + ~21 GB reclaimable page cache (GGUF) | Free for Quartus once the cache is reclaimed; still stop the minion before Quartus compiles |
 | **Claude Code + `codewhale`** | Remote API | Lead architecture, CDC, `.sdc`, `.sta.rpt` / `.fit.rpt` analysis, and multi-file edits (`deepseek-flash`) |
