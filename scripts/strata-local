@@ -2,7 +2,7 @@
 # strata-local — ciclo de vida y "minion" CLI del modelo local en la RX 9070 XT (puerto 8080, API OpenAI).
 #
 # Motores (STRATA_ENGINE):
-#   rusting  (por defecto) RustingStrata + Qwen3.6-35B-A3B UD-Q4_K_XL (GGUF), Vulkan, 32K ctx.
+#   rusting  (por defecto) RustingStrata + Qwen3.6-35B-A3B UD-Q4_K_XL (GGUF), Vulkan, 128K ctx, KV q8.
 #            Expertos que no caben en VRAM corren en la CPU; el GGUF queda en page cache (reclamable).
 #   inkling  (respaldo)    Strata de Niko1221 + Inkling-2-Mini SQ-15, 100% VRAM, 64K ctx (preset "daily").
 #
@@ -31,7 +31,8 @@ MAX_TOKENS="${STRATA_MAX_TOKENS:-4096}"
 RS_BIN="${RS_BIN:-$HOME/.local/bin/rustingstrata}"
 RS_MODEL="${RS_MODEL:-$HOME/models/gguf/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf}"
 RS_BACKEND="${RS_BACKEND:-vulkan}"          # vulkan (recomendado) | hip (experimental, ver RS_HIP_*)
-RS_CTX="${RS_CTX:-32768}"
+RS_CTX="${RS_CTX:-131072}"
+RS_KV="${RS_KV:-q8}"                         # q8: 128K de KV en 1.36 GB (f16 ocupa 2.56 GB y es más lento)
 RS_ALIAS="${RS_ALIAS:-qwen3.6-35b-a3b}"
 RS_STATE="${RS_STATE:-$HOME/.local/state/rustingstrata}"
 # HIP sin ROCm instalado: librerías hip/hiprtc de PyTorch-ROCm y cabeceras de Triton.
@@ -121,10 +122,10 @@ case "${1:-status}" in
     free_ollama_vram
     if [ "$ENGINE" = "rusting" ]; then
       need_rs; rs_env; mkdir -p "$RS_STATE"
-      setsid nohup "$RS_BIN" serve --model "$RS_MODEL" --gpu --backend "$RS_BACKEND" --ctx "$RS_CTX" \
+      setsid nohup "$RS_BIN" serve --model "$RS_MODEL" --gpu --backend "$RS_BACKEND" --ctx "$RS_CTX" --kv "$RS_KV" \
         --alias "$RS_ALIAS" --addr "127.0.0.1:$PORT" > "$RS_STATE/serve.log" 2>&1 < /dev/null &
       echo $! > "$RS_STATE/serve.pid"
-      echo "RustingStrata ($RS_BACKEND, $(basename "$RS_MODEL"), ctx $RS_CTX) PID $!"
+      echo "RustingStrata ($RS_BACKEND, $(basename "$RS_MODEL"), ctx $RS_CTX, kv $RS_KV) PID $!"
       wait_up 150
     else
       need_inkling
@@ -167,7 +168,7 @@ case "${1:-status}" in
     if [ "$ENGINE" = "rusting" ]; then
       need_rs
       echo "engine=rusting bin=$RS_BIN ($("$RS_BIN" --version 2>/dev/null))"
-      echo "model=$RS_MODEL backend=$RS_BACKEND ctx=$RS_CTX alias=$RS_ALIAS port=$PORT"
+      echo "model=$RS_MODEL backend=$RS_BACKEND ctx=$RS_CTX kv=$RS_KV alias=$RS_ALIAS port=$PORT"
       c="$HOME/.cache/rusting_strata/strata-$(basename "$RS_MODEL" .gguf)-$RS_BACKEND.json"
       [ -f "$c" ] && python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("calibración:", d["best"], d.get("measured"))' "$c" || echo "sin calibrar: strata-local calibrate"
     else
@@ -179,7 +180,7 @@ case "${1:-status}" in
     [ "$ENGINE" = "rusting" ] || die "calibrate es solo para STRATA_ENGINE=rusting (inkling usa strata launch --tune)."
     need_rs; up && die "detén el servidor antes de calibrar (strata-local stop)."
     preflight ""; rs_env
-    "$RS_BIN" calibrate --model "$RS_MODEL" --backend "$RS_BACKEND" --ctx "$RS_CTX" --minutes "${2:-10}"
+    "$RS_BIN" calibrate --model "$RS_MODEL" --backend "$RS_BACKEND" --ctx "$RS_CTX" --kv "$RS_KV" --minutes "${2:-10}"
     ;;
   ask)
     shift

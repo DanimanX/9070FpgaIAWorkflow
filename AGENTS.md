@@ -2,8 +2,8 @@
 
 ## 0. Hybrid Local Minion: RustingStrata (all domains)
 
-- **`strata-local ask`** ([RustingStrata](https://github.com/RustingStudio/RustingStrata) `1.3.7`, Vulkan, `Qwen3.6-35B-A3B UD-Q4_K_XL`, 35B MoE / 3B active, 32K ctx, `http://127.0.0.1:8080/v1` alias `qwen3.6-35b-a3b`, ~88% experts in VRAM + CPU experts, ~0.2 GB RAM + ~21 GB reclaimable page cache, ~100–130 tok/s) is the default local minion for bounded work in **FPGA, DevOps/IaC and Rust VST3/CLAP**: summaries (`--sum`), structural RTL inventory (`--rtl`, same limits as `qwen-rtl`), IaC boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`). Fallback engine: `STRATA_ENGINE=inkling` (Strata + Inkling-2-Mini SQ-15, 64K ctx).
-- **Rules:** **always `max_tokens >= 4096`**; `ask` runs with thinking off (`enable_thinking=false`, `--think` opts in); agents (`hermes` / `codewhale --profile strata`) use `reasoning_effort=low`. Always pass `-f` a real file for Rust/nih-plug. Anything above 32K tokens goes to `codewhale`.
+- **`strata-local ask`** ([RustingStrata](https://github.com/RustingStudio/RustingStrata) `1.3.7`, Vulkan, `Qwen3.6-35B-A3B UD-Q4_K_XL`, 35B MoE / 3B active, 128K ctx, `http://127.0.0.1:8080/v1` alias `qwen3.6-35b-a3b`, ~6.5k/10.2k experts in VRAM + CPU experts, ~0.2 GB RAM + ~21 GB reclaimable page cache, ~110–120 tok/s) is the default local minion for bounded work in **FPGA, DevOps/IaC and Rust VST3/CLAP**: summaries (`--sum`), structural RTL inventory (`--rtl`, same limits as `qwen-rtl`), IaC boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`). Fallback engine: `STRATA_ENGINE=inkling` (Strata + Inkling-2-Mini SQ-15, 64K ctx).
+- **Rules:** **always `max_tokens >= 4096`**; `ask` runs with thinking off (`enable_thinking=false`, `--think` opts in); agents (`hermes` / `codewhale --profile strata`) use `reasoning_effort=low`. Always pass `-f` a real file for Rust/nih-plug. Anything above 128K tokens goes to `codewhale`.
 - **VRAM is exclusive** between the local minion and Ollama (`qwen-rtl`, `qwen-vl`). **Stop the local minion before Quartus compiles** (`strata-local stop`); during compiles use `qwen-rtl` (VRAM only, no system RAM).
 - Agent use only as `codewhale --profile strata exec --max-turns 8` or `hermes chat -q "..." --oneshot`, one file / one routine at a time (`--parallel 1`). Full rules: [`skills/hybrid-local-ai/SKILL.md`](./skills/hybrid-local-ai/SKILL.md).
 
@@ -18,7 +18,7 @@
 
 ### Escalate to Remote (`codewhale` `deepseek-flash` / Claude Code):
 - **Timing & protocol reasoning:** cycle-by-cycle analysis of registered logic, protocol/waveform reasoning, and testbench checking logic.
-- Autonomous read-only audits (`codewhale exec --auto --sandbox read-only`), multi-file edits (`codewhale exec --auto --sandbox workspace-write`), or contexts exceeding 32K tokens.
+- Autonomous read-only audits (`codewhale exec --auto --sandbox read-only`), multi-file edits (`codewhale exec --auto --sandbox workspace-write`), or contexts exceeding 128K tokens.
 - **RTL architecture** design, video/audio pipelines, SDRAM/CRAM controllers, and bus decoding.
 - **Clock Domain Crossing (CDC):** asynchronous FIFOs (`dcfifo`) and multi-stage synchronizers between system clocks and `video_rgb_clock`.
 - **openFPGA** platform configuration (`core.json`, `video.json`, `data.json`, `interact.json`), pinouts (`.qsf`), and **TimeQuest** constraints (`.sdc`).

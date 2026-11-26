@@ -11,15 +11,15 @@ Claude acts as the lead architect (design, decisions, final verification). The l
 
 | Tool | Model | Memory | Role |
 | --- | --- | --- | --- |
-| `strata-local ask` | `qwen3.6-35b-a3b` (RustingStrata 1.3.7 Vulkan, Qwen3.6-35B-A3B UD-Q4_K_XL, 35B MoE / 3B active, 32K ctx, `:8080/v1`) | ~15.5 GB VRAM (~88% experts) + CPU experts; ~0.2 GB RAM + ~21 GB reclaimable page cache | Daily minion (~100–130 tok/s): summaries, structural RTL, IaC/Rust boilerplate, reviews |
-| `hermes chat --oneshot` | `qwen3.6-35b-a3b` (`reasoning_effort=low`, 32K ctx) | Same local server | Bounded single-file local tool-calling |
+| `strata-local ask` | `qwen3.6-35b-a3b` (RustingStrata 1.3.7 Vulkan, Qwen3.6-35B-A3B UD-Q4_K_XL, 35B MoE / 3B active, 128K ctx, `:8080/v1`) | ~15.5 GB VRAM (~6.5k/10.2k experts + q8 KV) + CPU experts; ~0.2 GB RAM + ~21 GB reclaimable page cache | Daily minion (~110–120 tok/s): summaries, structural RTL, IaC/Rust boilerplate, reviews |
+| `hermes chat --oneshot` | `qwen3.6-35b-a3b` (`reasoning_effort=low`, 128K ctx) | Same local server | Bounded single-file local tool-calling |
 | `claude --model sonnet` | Claude Sonnet (CLI) | — | Mid-tier token-saving cloud delegation for coding, reviews, and bounded reasoning |
-| `codewhale exec` | `deepseek-flash` (remote) | — | Timing/protocols, CDC, testbench checks, multi-file edits, >32K ctx |
+| `codewhale exec` | `deepseek-flash` (remote) | — | Timing/protocols, CDC, testbench checks, multi-file edits, >128K ctx |
 
 ## 2. Routing Rules
 
 1. **Check status:** Run `strata-local status`. Start with `strata-local start` if idle (refuses if Quartus/`memtester` is running or <16 GB RAM is free). **Always run `strata-local stop` before Quartus compiles (`quartus_sh`).** Fallback engine: `STRATA_ENGINE=inkling strata-local start` (Inkling-2-Mini SQ-15, 64K ctx) if RustingStrata misbehaves (hundreds of `timed out and resumed` in `strata-local logs`, NaN logits, amdgpu reset in `dmesg`).
-2. **Use `strata-local ask`** for single-file / bounded tasks (`<=32K` tokens):
+2. **Use `strata-local ask`** for single-file / bounded tasks (`<=128K` tokens):
    - `--sum -f <files>` — summarize large files, diffs, or Quartus/Verilator build logs.
    - `--rtl -f <mod.sv>` — structural inventory only (ports, parameters, clock/reset domains, FSM states, dependencies).
    - `--iac` — Terraform/OpenTofu modules, Helm values, Ansible, CI workflows.
@@ -47,5 +47,5 @@ codewhale exec --auto --sandbox workspace-write "<multi-file task with verificat
 ## 4. Verification & Operational Safety
 
 - Treat all local and remote drafts as unverified until Claude checks the `git diff` and runs domain checks (`verilator --lint-only`, `iverilog`, `quartus_sh`, `terraform fmt -check && terraform validate`, `cargo clippy --all-targets -- -D warnings`, `cargo test`).
-- Use `max_tokens >= 4096`; `strata-local ask` runs with thinking off (`enable_thinking=false`; `--think` opts in). Contexts above 32K tokens go to `codewhale`.
+- Use `max_tokens >= 4096`; `strata-local ask` runs with thinking off (`enable_thinking=false`; `--think` opts in). Contexts above 128K tokens go to `codewhale`.
 - Never use `pkill -f 'codewhale ...'`, `pkill -f strata` or `pkill -f rustingstrata`; `strata-local stop` kills by PID.

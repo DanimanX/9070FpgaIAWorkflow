@@ -110,13 +110,13 @@ def draw_card(draw, box, title, subtitle, lines, accent, active=False, badge=Non
 SCENES = [
     {
         "step": "STEP 1 / 5 — ARCHITECT & ROUTING",
-        "caption": "Claude Code evaluates task scope: bounded/structural tasks go local (0 cloud tokens); timing & multi-file >32K escalate.",
+        "caption": "Claude Code evaluates task scope: bounded/structural tasks go local (0 cloud tokens); timing & multi-file >128K escalate.",
         "active": {"claude"},
         "pulses": [("dev_claude", ACCENT_CLAUDE)],
     },
     {
         "step": "STEP 2 / 5 — LOCAL FAST PATH (RUSTINGSTRATA, VULKAN)",
-        "caption": "RustingStrata serves Qwen3.6-35B-A3B (:8080/v1, 32K ctx, ~100-130 tok/s) to Claude (ask) & Hermes (oneshot).",
+        "caption": "RustingStrata serves Qwen3.6-35B-A3B (:8080/v1, 128K ctx, ~110-120 tok/s) to Claude (ask) & Hermes (oneshot).",
         "active": {"claude", "hermes", "strata"},
         "pulses": [("claude_strata", ACCENT_STRATA), ("hermes_strata", ACCENT_HERMES), ("dev_hermes", ACCENT_HERMES)],
     },
@@ -208,7 +208,7 @@ def render_frame(scene_idx, t_in_scene):
         [
             "• Tool-calling loop (:8080)",
             "• reasoning_effort: low",
-            "• 32K ctx · 1 task at a time",
+            "• 128K ctx · 1 task at a time",
         ],
         ACCENT_HERMES, active=("hermes" in act), badge="AGENT"
     )
@@ -217,8 +217,8 @@ def render_frame(scene_idx, t_in_scene):
         draw, strata_box,
         "RustingStrata 1.3.7", "Qwen3.6-35B-A3B Q4_K_XL  ·  :8080/v1",
         [
-            "• ~88% experts in VRAM + CPU experts · 0.2 GB RAM",
-            "• ~100–130 tok/s · 32K ctx · prompt cache",
+            "• ~6.5k/10.2k experts in VRAM + CPU experts · 0.2 GB RAM",
+            "• ~110–120 tok/s · 128K ctx (KV q8) · prompt cache",
             "• --sum / --rtl / --iac / --rust / --review",
             "• thinking off (ask) | low (Hermes/CW), max_tok>=4096",
         ],
@@ -231,7 +231,7 @@ def render_frame(scene_idx, t_in_scene):
         [
             "• Cycle timing, bus protocols, CDC",
             "• Autonomous multi-file edits",
-            "• >32K context & complex debug",
+            "• >128K context & complex debug",
         ],
         ACCENT_CW, active=("cw" in act), badge="REMOTE"
     )
@@ -266,7 +266,7 @@ def render_frame(scene_idx, t_in_scene):
         arrow(draw, p1, p2, active_col, width=4 if is_active else 2, dashed=dashed, pulse_t=t_in_scene if is_active else None)
 
     # Edge labels
-    text(draw, (640, 145), "Timing / Multi-file / >32K", fnt(FONT_MONO, 11), fill=ACCENT_CW if "cw" in act else MUTED)
+    text(draw, (640, 145), "Timing / Multi-file / >128K", fnt(FONT_MONO, 11), fill=ACCENT_CW if "cw" in act else MUTED)
     text(draw, (466, 248), "strata-local ask", fnt(FONT_MONO, 11), fill=ACCENT_STRATA if "strata" in act else MUTED)
     text(draw, (725, 250), "--profile strata", fnt(FONT_MONO, 10), fill=MUTED)
 
@@ -280,7 +280,7 @@ def render_frame(scene_idx, t_in_scene):
 
     # Footer hardware rule bar
     if not sc["caption"]:
-        text(draw, (58, 636), "Same scripts/apibench.py, greedy, 256 tokens. Fallback kept: STRATA_ENGINE=inkling strata-local start", fnt(FONT_MONO, 11), fill=MUTED, anchor="ls")
+        text(draw, (58, 636), "A/B at 32K. Now 128K ctx (KV q8): ~110-120 tok/s, 81 tok/s after a 120K-token prompt. Fallback: STRATA_ENGINE=inkling", fnt(FONT_MONO, 11), fill=MUTED, anchor="ls")
         return img.resize((W, H), Image.Resampling.LANCZOS).convert("RGB")
     text(draw, (58, 592), "SAFETY RULE:  strata-local stop before Quartus compiles  |  --parallel 1 (1 local request at a time)  |  Never trust unverified local drafts", fnt(FONT_MONO, 12), fill=ACCENT_CW)
     text(draw, (58, 616), "MEASURED 2026-11-26:  RustingStrata Vulkan 92-129 tok/s vs Inkling SQ-15 69-73 tok/s (same script); no GPU resets, clean dmesg.", fnt(FONT_MONO, 11), fill=MUTED)

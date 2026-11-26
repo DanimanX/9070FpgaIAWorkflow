@@ -6,7 +6,7 @@ Follow all rules in [`AGENTS.md`](./AGENTS.md). The hybrid delegation workflow i
 
 Claude is the lead architect: it decides, reviews and verifies. Bounded work goes local (0 cloud tokens); delegable reasoning and large context go to `codewhale`.
 
-- **RustingStrata (`strata-local ask`) — default local minion** (RustingStrata 1.3.7 Vulkan, `Qwen3.6-35B-A3B UD-Q4_K_XL`, 35B MoE / 3B active, 32K ctx, `http://127.0.0.1:8080/v1` alias `qwen3.6-35b-a3b`, ~88% experts in VRAM + CPU experts, ~0.2 GB RAM + ~21 GB reclaimable page cache, ~100–130 tok/s; switched from Inkling on 2026-11-26, see README benchmark):
+- **RustingStrata (`strata-local ask`) — default local minion** (RustingStrata 1.3.7 Vulkan, `Qwen3.6-35B-A3B UD-Q4_K_XL`, 35B MoE / 3B active, 128K ctx, `http://127.0.0.1:8080/v1` alias `qwen3.6-35b-a3b`, ~6.5k/10.2k experts in VRAM + CPU experts, ~0.2 GB RAM + ~21 GB reclaimable page cache, ~110–120 tok/s; switched from Inkling on 2026-11-26, see README benchmark):
   - Summaries of files/logs (`--sum`), structural RTL inventory (`--rtl`), Terraform/Helm/Ansible/CI boilerplate (`--iac`), nih-plug boilerplate (`--rust`), first-pass reviews (`--review`), commit messages and docs.
   - Defaults: `ask` runs with thinking off (`enable_thinking=false`; `--think` opts in); Hermes and `codewhale --profile strata` use `reasoning_effort=low` (`max_tokens >= 4096`). **Rust: always pass a real nih-plug file with `-f`** (without it the API is invented) and verify with `cargo check` — DSP math stays in Claude.
   - Lifecycle: `strata-local status | start | stop | logs | plan | calibrate`. `start` unloads Ollama and refuses while Quartus or `memtester` run or with <16 GB RAM available. **Stop the minion before Quartus compiles.** Fallback: `STRATA_ENGINE=inkling strata-local start` (Inkling-2-Mini SQ-15, 100% VRAM, 64K ctx; `codewhale --profile inkling`).
@@ -16,7 +16,7 @@ Claude is the lead architect: it decides, reviews and verifies. Bounded work goe
 - **`qwen-vl` (`qwen2.5vl:7b`)** — UI captures, diagrams, crisp text: `qwen-vl --ocr|--diagram|--ui -f img.png`. Not for pixelated hex/register fonts or waveform cycle counting (measured 2026-11-17 on `IMG_20261115_172933.jpg`).
 - **VRAM is exclusive:** local minion OR Ollama. Run `strata-local stop` before `qwen-rtl` / `qwen-vl`.
 - **No local model does timing, cycle-by-cycle behaviour of registered logic, clock/phase reasoning or bus protocols.** (Measured 2026-11-17 on `psk_sram.sv`: structural inventory accurate, cycle trace wrong — ignored the one-clock register delay and invented `OE#`/bus contention.)
-- **`codewhale` (default `deepseek-flash`)** — timing/protocol/waveform reasoning, testbench checking logic, CDC, autonomous multi-file edits, >32K context. Do **not** use `codewhale --profile qwen exec` for tool-calling.
+- **`codewhale` (default `deepseek-flash`)** — timing/protocol/waveform reasoning, testbench checking logic, CDC, autonomous multi-file edits, >128K context. Do **not** use `codewhale --profile qwen exec` for tool-calling.
 - **Keep in Claude:** RTL architecture, CDC (`dcfifo`), openFPGA JSONs, `.qsf`/`.sdc`, `.sta.rpt` timing closure, DSP design and realtime safety in Rust, cloud IAM/network/security, and final verification.
 
 ### Quick Invocation
